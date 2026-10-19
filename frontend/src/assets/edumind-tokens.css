@@ -1,0 +1,36 @@
+/*
+ * Tokens do EduMind - fonte única da paleta. Mesmos valores do AgroMind (assets/agromind-tokens.css)
+ * para os dois projetos terem a mesma cara; edumind-preset.js lê estas variáveis para o tema Aura do
+ * PrimeVue. Só tema claro, como no AgroMind.
+ *
+ * Tokens próprios do EduMind no fim: --paper e --font-doc (o texto do edital, lido como documento)
+ * e --mark (o marca-texto do trecho citado pela IA).
+ */
+:root {
+  --background: oklch(0.977 0.006 120);
+  --foreground: oklch(0.24 0.02 150);
+  --card: oklch(0.995 0.003 120);
+  --card-foreground: oklch(0.24 0.02 150);
+  --primary: oklch(0.46 0.098 150);
+  --primary-foreground: oklch(0.985 0.01 120);
+  --secondary: oklch(0.95 0.012 130);
+  --muted: oklch(0.955 0.008 125);
+  --muted-foreground: oklch(0.52 0.02 145);
+  --accent: oklch(0.93 0.03 145);
+  --accent-foreground: oklch(0.34 0.05 150);
+  --border: oklch(0.9 0.012 135);
+  --positive: oklch(0.52 0.12 150);
+  --negative: oklch(0.55 0.15 27);
+  --warning: oklch(0.72 0.13 75);
+  --warning-foreground: oklch(0.28 0.04 70);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.99 0.004 120);
+  --font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  --paper: oklch(0.995 0.003 120);
+  --mark: #fde68a;
+  --mark-foreground: #3b2f05;
+  --font-doc: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+}

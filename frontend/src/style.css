@@ -1,0 +1,95 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  letter-spacing: -0.01em;
+}
+
+/* Cabeçalho de cada tela: título, descrição curta e ações à direita. */
+.pagina-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+.pagina-cabecalho p {
+  margin: 0.25rem 0 0;
+  color: var(--muted-foreground);
+  max-width: 70ch;
+}
+
+/* Painel: a moldura padrão de um bloco de conteúdo. */
+.painel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.painel__cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.painel__cabecalho h2 {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.painel__corpo {
+  padding: 1rem;
+}
+
+.rotulo {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+/* Texto do edital: lido como documento, em serifa, sobre "papel". */
+.documento {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-family: var(--font-doc);
+  font-size: 0.95rem;
+  line-height: 1.65;
+  padding: 1.1rem 1.4rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.documento mark {
+  background: var(--mark);
+  color: var(--mark-foreground);
+  border-radius: 2px;
+  padding: 0 2px;
+}
