@@ -1,0 +1,24 @@
+{
+  "name": "edumind-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend do EduMind: análise de editais e obtenção das normas em fontes oficiais",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test \"src/**/*.test.js\""
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.3.0",
+    "multer": "^2.4.0",
+    "pdfjs-dist": "^4.10.38",
+    "pino": "^9.14.0",
+    "pino-http": "^10.5.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "pino-pretty": "^13.2.0"
+  }
+}
