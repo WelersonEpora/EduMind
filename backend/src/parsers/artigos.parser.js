@@ -174,18 +174,26 @@ function expandirArtigos(texto) {
 }
 
 // Completa a lista com os artigos com letra que existem no texto da norma e caem dentro de um dos
-// intervalos do edital (313-A em "312 a 317"). "Dentro" segue a ordem da norma: 312 < 312-A < ...
-// < 317 < 317-A, então 317-A fica FORA de "312 a 317". Marcados com origem "letra_no_intervalo"
-// para a tela de revisão mostrar que vieram do texto da norma, não do edital.
+// intervalos do edital (313-A em "312 a 317"). Decisão do orientador: o artigo com letra logo depois
+// da ponta final também entra, então "312 a 317" inclui 317-A e 317-B. Já 311-B, antes da ponta
+// inicial, fica fora. Se a ponta final tem letra ("312 a 317-A"), ela é o limite exato: 317-B fica
+// fora. Marcados com origem "letra_no_intervalo" para a tela de revisão mostrar que vieram do texto
+// da norma, não do edital.
+function numeroSemLetra(artigo) {
+  return Number(artigo.split("-")[0]);
+}
+
+function dentroDoIntervalo(artigo, { inicio, fim }) {
+  if (compararArtigos(artigo, inicio) <= 0) return false;
+  if (fim.includes("-")) return compararArtigos(artigo, fim) < 0;
+  return numeroSemLetra(artigo) <= numeroSemLetra(fim);
+}
+
 function incluirArtigosComLetra(resultado, artigosDaNorma) {
   const jaTem = new Set(resultado.artigos.map((a) => a.numero));
   const extras = artigosDaNorma
     .filter((artigo) => artigo.includes("-") && !jaTem.has(artigo))
-    .filter((artigo) =>
-      resultado.intervalos.some(
-        (intervalo) => compararArtigos(artigo, intervalo.inicio) > 0 && compararArtigos(artigo, intervalo.fim) < 0
-      )
-    )
+    .filter((artigo) => resultado.intervalos.some((intervalo) => dentroDoIntervalo(artigo, intervalo)))
     .map((numero) => ({ numero, origem: "letra_no_intervalo" }));
   const artigos = [...resultado.artigos, ...extras].sort((a, b) => compararArtigos(a.numero, b.numero));
   return { ...resultado, artigos };

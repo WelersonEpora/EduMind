@@ -31,7 +31,8 @@ citadas. Edital de teste: TJSP Escrevente Técnico Judiciário 2025 (Vunesp).
   busca de texto se o trecho existe na página citada; se não existir, o item fica "não verificado".
 - A expansão de artigos ("293 a 305; 311-A") é feita por código (`parsers/artigos.parser.js`), sem
   regex e sem IA. Artigos com letra dentro de um intervalo (313-A em "312 a 317") entram só quando
-  existem no texto da norma, marcados como `letra_no_intervalo`.
+  existem no texto da norma, marcados como `letra_no_intervalo`. Os com letra logo após a ponta
+  final também entram (317-A e 317-B em "312 a 317"); se a ponta final já tem letra, ela é o limite exato.
 - Artigo revogado é "revogado", não "faltando".
 - Nunca inventar texto de lei. Artigo não encontrado aparece como não encontrado.
 - A busca na web da IA serve só para descobrir a URL oficial de uma norma, nunca para obter o texto.

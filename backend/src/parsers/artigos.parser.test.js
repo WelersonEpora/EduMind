@@ -100,10 +100,19 @@ test("inclui os artigos com letra que a norma tem dentro dos intervalos do edita
   assert.deepEqual(ordem.slice(ordem.indexOf("313"), ordem.indexOf("313") + 4), ["313", "313-A", "313-B", "314"]);
 });
 
-test("segue a ordem da norma: 312-A está dentro de '312 a 317'; 317-A e 311-B ficam fora", () => {
-  const completo = incluirArtigosComLetra(expandirArtigos("312 a 317"), ["311-B", "312-A", "317-A"]);
+test("'312 a 317' inclui 312-A e os artigos com letra do 317; 311-B e 318-A ficam fora", () => {
+  const completo = incluirArtigosComLetra(expandirArtigos("312 a 317"), ["311-B", "312-A", "317-A", "317-B", "318-A"]);
   assert.deepEqual(
     completo.artigos.filter((a) => a.origem === "letra_no_intervalo").map((a) => a.numero),
-    ["312-A"]
+    ["312-A", "317-A", "317-B"]
+  );
+  assert.deepEqual(completo.artigos.slice(-3).map((a) => a.numero), ["317", "317-A", "317-B"]);
+});
+
+test("ponta com letra é limite exato: '311-A a 317-A' deixa 311-B dentro e 317-B fora", () => {
+  const completo = incluirArtigosComLetra(expandirArtigos("311-A a 317-A"), ["311-B", "317-B"]);
+  assert.deepEqual(
+    completo.artigos.filter((a) => a.origem === "letra_no_intervalo").map((a) => a.numero),
+    ["311-B"]
   );
 });
