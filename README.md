@@ -24,18 +24,22 @@ Etapa **1a** concluída: esqueleto, banco, upload do PDF com texto por página e
 
 ## Requisitos
 
-- Node.js 24 ou mais novo (o banco usa o SQLite embutido no Node, `node:sqlite`).
+- Node.js 24 ou mais novo.
 - npm 11.
+- PostgreSQL 16: o Postgres compartilhado desta máquina, de `C:Sourceinfra` (`docker compose up -d` lá).
+  O usuário `edumind` e os databases `edumind` e `edumind_test` já existem nele; a senha está em
+  `C:Sourceinfraapps.env` (`POSTGRES_EDUMIND_PASSWORD`).
 
 ## Como rodar
 
 ```bash
 # 1. Configuração (na raiz do projeto)
-cp .env.example .env        # preencha as chaves do Gemini quando for usar a etapa 1b
+cp .env.example .env        # preencha POSTGRES_PASSWORD e, na etapa 1b, as chaves do Gemini
 
 # 2. Backend (porta 3000)
 cd backend
 npm install
+npm run db:migrate
 npm run dev
 
 # 3. Frontend (outro terminal, porta 5173)
@@ -46,8 +50,9 @@ npm run dev
 
 Abra http://localhost:5173. O Vite repassa `/api` para o backend na porta 3000.
 
-O banco (`data/edumind.db`) e os PDFs enviados (`data/uploads/`) são criados na primeira execução.
-As migrations em `backend/src/db/migrations/` são aplicadas automaticamente ao subir o backend.
+Os PDFs enviados ficam em `data/uploads/`, criada na primeira execução. O schema do banco vem das migrations em
+`backend/database/migrations/` (Sequelize), aplicadas com `npm run db:migrate`; rode de novo sempre que
+entrar uma migration nova.
 
 ## Testes
 
@@ -55,6 +60,9 @@ As migrations em `backend/src/db/migrations/` são aplicadas automaticamente ao 
 cd backend
 npm test
 ```
+
+Os testes usam o database `edumind_test`: o `npm test` aplica as migrations nele antes e cada teste apaga os
+dados ao começar. Por isso o Postgres precisa estar no ar.
 
 O teste com o edital real do TJSP só roda quando o arquivo está em
 `tests/fixtures/edital_tjsp_escrevente_2025.pdf`; sem ele, aparece como pulado.
@@ -64,11 +72,13 @@ O teste com o edital real do TJSP só roda quando o arquivo está em
 ```text
 backend/src/
   config/env.js            variáveis de ambiente (.env na raiz)
-  db/                      abertura do SQLite e migrations (fonte da verdade do schema)
+  db/                      conexão com o PostgreSQL (Sequelize)
+  models/                  models do Sequelize (só das tabelas que o código já usa)
   parsers/artigos.parser.js  expansão de "artigos 293 a 305; 307; 311-A" (código, sem regex, sem IA)
   services/                regras: edital (upload e páginas), leitura do PDF
   routes/                  rotas HTTP em /api/v1
   shared/                  logger, erros, middlewares
+backend/database/migrations/  migrations do sequelize-cli (fonte da verdade do schema)
 frontend/src/
   components/layout/AppShell.vue  topbar e menu lateral (padrão do AgroMind)
   views/                   telas

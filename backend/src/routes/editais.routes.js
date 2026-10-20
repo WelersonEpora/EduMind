@@ -10,8 +10,8 @@ function criarRotasDeEditais(editalService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
-  router.get("/", (req, res) => {
-    res.json({ data: editalService.listar() });
+  router.get("/", async (req, res) => {
+    res.json({ data: await editalService.listar() });
   });
 
   router.post("/", upload.single("arquivo"), async (req, res) => {
@@ -22,16 +22,16 @@ function criarRotasDeEditais(editalService) {
     res.status(jaExistia ? 200 : 201).json({ data: edital, jaExistia });
   });
 
-  router.get("/:id", (req, res) => {
-    res.json({ data: editalService.buscar(req.params.id) });
+  router.get("/:id", async (req, res) => {
+    res.json({ data: await editalService.buscar(req.params.id) });
   });
 
-  router.get("/:id/paginas/:numero", (req, res) => {
-    res.json({ data: editalService.pagina(req.params.id, Number(req.params.numero)) });
+  router.get("/:id/paginas/:numero", async (req, res) => {
+    res.json({ data: await editalService.pagina(req.params.id, Number(req.params.numero)) });
   });
 
-  router.get("/:id/arquivo", (req, res) => {
-    res.type("application/pdf").sendFile(editalService.caminhoDoArquivo(req.params.id));
+  router.get("/:id/arquivo", async (req, res) => {
+    res.type("application/pdf").sendFile(await editalService.caminhoDoArquivo(req.params.id));
   });
 
   return router;

@@ -2,7 +2,7 @@
 node_modules/
 backend/coverage/
 frontend/dist/
-# Banco SQLite, PDFs enviados e normas baixadas.
+# PDFs enviados e normas baixadas.
 data/
 # O edital de teste é do usuário e não vai para o repositório.
 tests/fixtures/*.pdf

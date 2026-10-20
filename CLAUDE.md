@@ -15,11 +15,14 @@ citadas. Edital de teste: TJSP Escrevente Técnico Judiciário 2025 (Vunesp).
 ## Stack (mesmo padrão do FinMind e do AgroMind)
 
 - Backend: Node 24, JavaScript CommonJS, Express 5, multer, pino. Testes com `node:test`.
-- Banco: SQLite embutido do Node (`node:sqlite`). Migrations numeradas em `backend/src/db/migrations`
-  são a fonte da verdade do schema; nunca editar uma migration já aplicada.
+- Banco: PostgreSQL 16 com Sequelize 6 (`pg`). Em desenvolvimento, o Postgres compartilhado de
+  `C:Sourceinfra` (container Docker), com usuário `edumind` e databases `edumind` e `edumind_test`
+  (testes). As migrations do `sequelize-cli` em `backend/database/migrations` são a fonte da verdade do
+  schema; nunca editar uma migration já aplicada e nunca usar `sequelize.sync()`.
 - Frontend: Vue 3 + Vite + PrimeVue + vue-router + axios. Paleta e menu lateral do AgroMind.
 - IA: Gemini pela API REST (provider no padrão do FinMind: chave gratuita primeiro, paga como reserva).
-- Sem Docker, sem autenticação, sem frameworks de agentes.
+- Docker só para o Postgres compartilhado; a aplicação roda direto no Node. Sem autenticação, sem
+  frameworks de agentes.
 
 ## Regras que não mudam
 

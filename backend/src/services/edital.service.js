@@ -3,7 +3,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { emTransacao } = require("../db");
 const { AppError } = require("../shared/errors");
 const pdfTexto = require("./pdf-texto");
 
@@ -12,19 +11,27 @@ const pdfTexto = require("./pdf-texto");
 //
 // O mesmo PDF enviado duas vezes (mesmo SHA-256) não cria outro edital: devolve o existente.
 
-const CAMPOS_DA_LISTA = `id, arquivo_nome, arquivo_bytes, total_paginas, banca, orgao, cargo, data_publicacao,
-  status, created_at, updated_at`;
+const CAMPOS_DA_LISTA = [
+  "id", "arquivo_nome", "arquivo_bytes", "total_paginas", "banca", "orgao", "cargo", "data_publicacao",
+  "status", "created_at", "updated_at"
+];
 
-function criarEditalService({ db, dirUploads, lerPaginas = pdfTexto.lerPaginas, agora = () => new Date().toISOString() }) {
-  function buscar(id) {
-    const edital = db.prepare(`SELECT ${CAMPOS_DA_LISTA}, metadados_json, erro FROM edital WHERE id = ?`).get(id);
+// Um id que não é UUID nunca existe; sem esta checagem, o Postgres recusaria a consulta com erro 500.
+const FORMATO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPaginas }) {
+  const { Edital, EditalPagina } = sequelize.models;
+
+  async function buscar(id) {
+    const edital = FORMATO_UUID.test(id)
+      ? await Edital.findByPk(id, { attributes: [...CAMPOS_DA_LISTA, "metadados", "erro"], raw: true })
+      : null;
     if (!edital) throw new AppError(404, "Edital não encontrado.");
-    const { metadados_json: metadados, ...resto } = edital;
-    return { ...resto, metadados: metadados ? JSON.parse(metadados) : null };
+    return edital;
   }
 
   function listar() {
-    return db.prepare(`SELECT ${CAMPOS_DA_LISTA} FROM edital ORDER BY created_at DESC`).all();
+    return Edital.findAll({ attributes: CAMPOS_DA_LISTA, order: [["created_at", "DESC"]], raw: true });
   }
 
   async function criarAPartirDoPdf({ buffer, nomeArquivo }) {
@@ -32,8 +39,8 @@ function criarEditalService({ db, dirUploads, lerPaginas = pdfTexto.lerPaginas, 
       throw new AppError(400, "O arquivo enviado não é um PDF.");
     }
     const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-    const existente = db.prepare("SELECT id FROM edital WHERE arquivo_sha256 = ?").get(sha256);
-    if (existente) return { edital: buscar(existente.id), jaExistia: true };
+    const existente = await Edital.findOne({ where: { arquivo_sha256: sha256 }, attributes: ["id"] });
+    if (existente) return { edital: await buscar(existente.id), jaExistia: true };
 
     let paginas;
     try {
@@ -50,32 +57,35 @@ function criarEditalService({ db, dirUploads, lerPaginas = pdfTexto.lerPaginas, 
     fs.mkdirSync(dirUploads, { recursive: true });
     fs.writeFileSync(caminho, buffer);
 
-    const momento = agora();
     try {
-      emTransacao(db, () => {
-        db.prepare(
-          `INSERT INTO edital (id, arquivo_nome, arquivo_sha256, arquivo_bytes, total_paginas, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'texto_extraido', ?, ?)`
-        ).run(id, nomeArquivo, sha256, buffer.length, paginas.length, momento, momento);
-        const inserirPagina = db.prepare("INSERT INTO edital_pagina (edital_id, numero, texto) VALUES (?, ?, ?)");
-        for (const pagina of paginas) inserirPagina.run(id, pagina.numero, pagina.texto);
+      await sequelize.transaction(async (transaction) => {
+        await Edital.create(
+          { id, arquivo_nome: nomeArquivo, arquivo_sha256: sha256, arquivo_bytes: buffer.length, total_paginas: paginas.length },
+          { transaction }
+        );
+        await EditalPagina.bulkCreate(
+          paginas.map((p) => ({ edital_id: id, numero: p.numero, texto: p.texto })),
+          { transaction }
+        );
       });
     } catch (erro) {
       fs.rmSync(caminho, { force: true });
       throw erro;
     }
-    return { edital: buscar(id), jaExistia: false };
+    return { edital: await buscar(id), jaExistia: false };
   }
 
-  function pagina(id, numero) {
-    buscar(id);
-    const encontrada = db.prepare("SELECT numero, texto FROM edital_pagina WHERE edital_id = ? AND numero = ?").get(id, numero);
+  async function pagina(id, numero) {
+    await buscar(id);
+    const encontrada = Number.isInteger(numero)
+      ? await EditalPagina.findOne({ where: { edital_id: id, numero }, attributes: ["numero", "texto"], raw: true })
+      : null;
     if (!encontrada) throw new AppError(404, `Página ${numero} não existe neste edital.`);
-    return { ...encontrada };
+    return encontrada;
   }
 
-  function caminhoDoArquivo(id) {
-    buscar(id);
+  async function caminhoDoArquivo(id) {
+    await buscar(id);
     return path.join(dirUploads, `${id}.pdf`);
   }
 

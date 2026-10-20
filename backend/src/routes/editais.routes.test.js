@@ -5,14 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBanco } = require("../db");
+const { abrirBancoDeTeste } = require("../../test/helpers/banco");
 const { criarApp } = require("../app");
 const { pdfMinimo } = require("../../test/helpers/pdf-minimo");
 
-// Sobe o app numa porta livre, com banco em memória, e devolve a URL base.
+// Sobe o app numa porta livre, com o banco de teste vazio, e devolve a URL base.
 async function subir(t) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-api-"));
-  const servidor = criarApp({ db: abrirBanco(":memory:"), dataDir }).listen(0);
+  const servidor = criarApp({ sequelize: await abrirBancoDeTeste(t), dataDir }).listen(0);
   await new Promise((resolve) => servidor.once("listening", resolve));
   t.after(() => servidor.close());
   return `http://127.0.0.1:${servidor.address().port}`;
