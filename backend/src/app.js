@@ -9,6 +9,7 @@ const { criarEditalService } = require("./services/edital.service");
 const { criarExtracaoService } = require("./services/extracao.service");
 const { criarRevisaoService } = require("./services/revisao.service");
 const { criarFontesService } = require("./services/fontes.service");
+const { criarCoberturaService } = require("./services/cobertura.service");
 const { criarRotasDeNormas } = require("./routes/normas.routes");
 const { criarRotasDeEditais } = require("./routes/editais.routes");
 
@@ -28,7 +29,10 @@ function criarApp({
   const editalService = criarEditalService({ sequelize, dirUploads: path.join(dataDir, "uploads", "editais") });
 
   app.get("/health", (req, res) => res.json({ status: "ok" }));
-  app.use("/api/v1/editais", criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService));
+  app.use(
+    "/api/v1/editais",
+    criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService, criarCoberturaService({ sequelize }))
+  );
 
   app.use("/api/v1/normas", criarRotasDeNormas(fontesService));
 

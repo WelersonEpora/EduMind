@@ -6,7 +6,7 @@ const { AppError } = require("../shared/errors");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
-function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService) {
+function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -60,6 +60,11 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
 
   router.post("/:id/fontes/desligar", async (req, res) => {
     res.json({ data: await fontesService.desligar(req.params.id, req.body || {}) });
+  });
+
+  // Cobertura (etapa 2c): cada artigo pedido cruzado com o texto da norma.
+  router.get("/:id/cobertura", async (req, res) => {
+    res.json({ data: await coberturaService.cobertura(req.params.id) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {

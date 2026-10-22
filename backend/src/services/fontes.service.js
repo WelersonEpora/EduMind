@@ -376,4 +376,4 @@ function criarFontesService({
   };
 }
 
-module.exports = { criarFontesService, urlOficial, urlDaResposta };
+module.exports = { criarFontesService, urlOficial, urlDaResposta, quandoFoiAlterado };
