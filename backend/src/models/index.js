@@ -14,6 +14,7 @@ module.exports = function definirModelos(sequelize) {
   const ProvaArquivo = require("./provaArquivo")(sequelize);
   require("./provaPagina")(sequelize);
   const EditalProva = require("./editalProva")(sequelize);
+  const ProvaQuestao = require("./provaQuestao")(sequelize);
 
   Edital.hasMany(EditalPagina, { foreignKey: "edital_id", as: "paginas" });
   EditalPagina.belongsTo(Edital, { foreignKey: "edital_id" });
@@ -26,4 +27,5 @@ module.exports = function definirModelos(sequelize) {
   NormaVersao.hasMany(NormaArtigo, { foreignKey: "versao_id", as: "artigos" });
   Prova.hasMany(ProvaArquivo, { foreignKey: "prova_id", as: "arquivos" });
   Prova.hasMany(EditalProva, { foreignKey: "prova_id", as: "editais" });
+  Prova.hasMany(ProvaQuestao, { foreignKey: "prova_id", as: "questoes" });
 };

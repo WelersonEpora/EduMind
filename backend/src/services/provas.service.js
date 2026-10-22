@@ -110,7 +110,7 @@ function situacaoDoGabarito(valor) {
 }
 
 function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPaginas, agora = () => new Date() }) {
-  const { Edital, EditalItem, ItemNorma, Norma, Prova, ProvaArquivo, ProvaPagina, EditalProva } = sequelize.models;
+  const { Edital, EditalItem, ItemNorma, Norma, Prova, ProvaArquivo, ProvaPagina, EditalProva, ProvaQuestao } = sequelize.models;
 
   async function provaExistente(id) {
     const prova = eUuid(id) ? await Prova.findByPk(id) : null;
@@ -131,11 +131,16 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
       raw: true
     });
     const editais = await EditalProva.findAll({ where: { prova_id: prova.id }, attributes: ["edital_id"], raw: true });
+    // Quantas questões lidas, por status (etapa 3b).
+    const porStatus = await ProvaQuestao.count({ where: { prova_id: prova.id }, group: ["status"] });
+    const questoes = { valida: 0, a_revisar: 0, descartada: 0 };
+    for (const { status, count } of porStatus) questoes[status] = Number(count);
     return {
       ...(prova.get ? prova.get({ plain: true }) : prova),
       prova: arquivos.find((a) => a.tipo === "prova") || null,
       gabarito: arquivos.find((a) => a.tipo === "gabarito") || null,
-      editais: editais.map((e) => e.edital_id)
+      editais: editais.map((e) => e.edital_id),
+      questoes
     };
   }
 

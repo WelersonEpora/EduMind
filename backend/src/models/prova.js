@@ -13,7 +13,10 @@ module.exports = (sequelize) =>
       cargo: { type: DataTypes.TEXT },
       ano: { type: DataTypes.INTEGER },
       gabarito_situacao: { type: DataTypes.STRING(20) },
-      observacoes: { type: DataTypes.TEXT }
+      observacoes: { type: DataTypes.TEXT },
+      leitura_status: { type: DataTypes.STRING(20) },
+      leitura_erro: { type: DataTypes.TEXT },
+      leitura: { type: DataTypes.JSONB }
     },
     {
       tableName: "prova",

@@ -1,0 +1,168 @@
+"use strict";
+
+const { Op } = require("sequelize");
+const gemini = require("../ai/gemini.provider");
+const { carregarPrompt } = require("../ai/carregar-prompt");
+const { AppError } = require("../shared/errors");
+const { eUuid } = require("../shared/uuid");
+const logger = require("../shared/logger");
+const { textoComMarcasDePagina } = require("./extracao.service");
+const { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes } = require("./leitura-da-prova");
+
+// Leitura das questões de uma prova da biblioteca (etapa 3b), em segundo plano: a rota responde na hora com a prova
+// em "lendo" e a tela acompanha pelo leitura_status. As duas chamadas (questões e gabarito) vão em paralelo, só com a
+// chave paga (como a extração do edital).
+
+const PROMPT_QUESTOES = "prova-questoes.md";
+const PROMPT_GABARITO = "prova-gabarito.md";
+const STATUS_DA_QUESTAO = ["valida", "a_revisar", "descartada"];
+const LETRAS = ["A", "B", "C", "D", "E"];
+
+function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
+  const { Prova, ProvaArquivo, ProvaPagina, ProvaQuestao } = sequelize.models;
+  const aindaLendo = (id) => ({ where: { id, leitura_status: "lendo" } });
+
+  async function provaExistente(id) {
+    const prova = eUuid(id) ? await Prova.findByPk(id) : null;
+    if (!prova) throw new AppError(404, "Prova não encontrada na biblioteca.");
+    return prova;
+  }
+
+  async function paginasDo(provaId, tipo) {
+    const arquivo = await ProvaArquivo.findOne({ where: { prova_id: provaId, tipo }, attributes: ["id"], raw: true });
+    if (!arquivo) return null;
+    return ProvaPagina.findAll({ where: { arquivo_id: arquivo.id }, attributes: ["numero", "texto"], order: [["numero", "ASC"]], raw: true });
+  }
+
+  async function chamarIa(arquivoDoPrompt, variaveis, responseSchema) {
+    const { versao, instrucaoDoSistema, prompt } = carregarPrompt(arquivoDoPrompt, variaveis);
+    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema, somentePaga: true });
+    return { texto: resposta.texto, registro: { prompt: versao, modelo: resposta.modelo, chave: resposta.chave, tokens: resposta.tokens } };
+  }
+
+  async function executar(id) {
+    try {
+      const paginasDaProva = await paginasDo(id, "prova");
+      const paginasDoGabarito = await paginasDo(id, "gabarito");
+      const [chamadaQuestoes, chamadaGabarito] = await Promise.all([
+        chamarIa(PROMPT_QUESTOES, { texto_da_prova: textoComMarcasDePagina(paginasDaProva) }, ESQUEMA_QUESTOES),
+        paginasDoGabarito ? chamarIa(PROMPT_GABARITO, { texto_do_gabarito: textoComMarcasDePagina(paginasDoGabarito) }, ESQUEMA_GABARITO) : null
+      ]);
+      const { questoes, avisos, versoes } = montarQuestoes({
+        respostaQuestoes: chamadaQuestoes.texto,
+        respostaGabarito: chamadaGabarito ? chamadaGabarito.texto : null,
+        paginasDaProva,
+        paginasDoGabarito: paginasDoGabarito || []
+      });
+      if (questoes.length === 0) throw new AppError(422, "A leitura não encontrou nenhuma questão no PDF da prova.");
+
+      const leitura = {
+        concluida_em: agora().toISOString(),
+        versoes,
+        avisos,
+        chamadas: [chamadaQuestoes.registro, ...(chamadaGabarito ? [chamadaGabarito.registro] : [])]
+      };
+      const gravou = await sequelize.transaction(async (transaction) => {
+        const [alterados] = await Prova.update({ leitura_status: "lida", leitura_erro: null, leitura }, { ...aindaLendo(id), transaction });
+        if (alterados === 0) return false;
+        await ProvaQuestao.destroy({ where: { prova_id: id }, transaction });
+        await ProvaQuestao.bulkCreate(questoes.map((q) => ({ ...q, prova_id: id })), { transaction });
+        return true;
+      });
+      logger.info({ provaId: id, gravou, questoes: questoes.length, avisos, chamadas: leitura.chamadas }, "leitura da prova concluída");
+    } catch (erro) {
+      logger.error({ err: erro, provaId: id }, "leitura da prova falhou");
+      const mensagem =
+        erro instanceof AppError || erro instanceof gemini.ErroDoGemini ? erro.message : "Erro inesperado na leitura. Veja o log do backend.";
+      await Prova.update({ leitura_status: "erro", leitura_erro: mensagem }, aindaLendo(id)).catch((erroAoGravar) =>
+        logger.error({ err: erroAoGravar, provaId: id }, "não gravou o erro da leitura")
+      );
+    }
+  }
+
+  // Marca a prova como "lendo" e dispara a leitura. Ler de novo substitui as questões; se o orientador já revisou
+  // alguma, só segue com `confirmarPerdaDaRevisao` (409 com quantas seriam perdidas, como no edital).
+  async function iniciar(id, { confirmarPerdaDaRevisao = false } = {}) {
+    const prova = await provaExistente(id);
+    if (!(await ProvaArquivo.count({ where: { prova_id: prova.id, tipo: "prova" } }))) throw new AppError(400, "A prova não tem PDF.");
+    if (prova.leitura_status !== "lendo" && !confirmarPerdaDaRevisao) {
+      const revisadas = await ProvaQuestao.count({ where: { prova_id: prova.id, revisada_em: { [Op.ne]: null } } });
+      if (revisadas > 0) {
+        throw new AppError(
+          409,
+          `${revisadas} ${revisadas === 1 ? "questão já foi revisada" : "questões já foram revisadas"}. Ler de novo substitui todas e a revisão se perde.`,
+          { codigo: "revisao_sera_perdida", revisadas }
+        );
+      }
+    }
+    const [alterados] = await Prova.update(
+      { leitura_status: "lendo", leitura_erro: null },
+      { where: { id: prova.id, [Op.or]: [{ leitura_status: null }, { leitura_status: { [Op.ne]: "lendo" } }] } }
+    );
+    if (alterados === 0) throw new AppError(409, "A leitura desta prova já está em andamento.");
+    return { concluida: executar(prova.id) };
+  }
+
+  async function marcarInterrompidas() {
+    const [alterados] = await Prova.update(
+      { leitura_status: "erro", leitura_erro: "O backend reiniciou durante a leitura. Leia de novo." },
+      { where: { leitura_status: "lendo" } }
+    );
+    return alterados;
+  }
+
+  async function questoes(provaId) {
+    const prova = await provaExistente(provaId);
+    const lista = await ProvaQuestao.findAll({ where: { prova_id: prova.id }, order: [["numero", "ASC"]], raw: true });
+    return {
+      prova: { id: prova.id, banca: prova.banca, orgao: prova.orgao, cargo: prova.cargo, ano: prova.ano, gabarito_situacao: prova.gabarito_situacao, leitura_status: prova.leitura_status, leitura_erro: prova.leitura_erro, leitura: prova.leitura },
+      questoes: lista
+    };
+  }
+
+  // O orientador corrige ou decide sobre uma questão: status, gabarito, anulada, disciplina, enunciado, alternativas.
+  async function revisarQuestao(provaId, questaoId, alteracoes = {}) {
+    const prova = await provaExistente(provaId);
+    const questao = eUuid(questaoId) ? await ProvaQuestao.findOne({ where: { id: questaoId, prova_id: prova.id } }) : null;
+    if (!questao) throw new AppError(404, "Questão não encontrada nesta prova.");
+    const campos = Object.keys(alteracoes);
+    if (campos.length === 0) throw new AppError(400, "Nada para alterar.");
+
+    const novos = {};
+    for (const campo of campos) {
+      const valor = alteracoes[campo];
+      if (campo === "status") {
+        if (!STATUS_DA_QUESTAO.includes(valor)) throw new AppError(400, 'O status precisa ser "valida", "a_revisar" ou "descartada".');
+        novos.status = valor;
+      } else if (campo === "gabarito") {
+        if (valor !== null && !LETRAS.includes(valor)) throw new AppError(400, "O gabarito precisa ser uma letra de A a E, ou vazio.");
+        novos.gabarito = valor;
+      } else if (campo === "anulada") {
+        if (typeof valor !== "boolean") throw new AppError(400, '"anulada" precisa ser true ou false.');
+        novos.anulada = valor;
+      } else if (campo === "disciplina") {
+        novos.disciplina = typeof valor === "string" && valor.trim() ? valor.trim() : null;
+      } else if (campo === "enunciado") {
+        if (typeof valor !== "string" || !valor.trim()) throw new AppError(400, "O enunciado não pode ficar vazio.");
+        novos.enunciado = valor.trim();
+        novos.editada = true;
+      } else if (campo === "alternativas") {
+        const validas =
+          Array.isArray(valor) &&
+          valor.length > 0 &&
+          valor.every((a) => a && LETRAS.includes(a.letra) && typeof a.texto === "string" && a.texto.trim() !== "");
+        if (!validas) throw new AppError(400, "Cada alternativa precisa de letra (A a E) e texto.");
+        novos.alternativas = valor.map((a) => ({ letra: a.letra, texto: a.texto.trim() }));
+        novos.editada = true;
+      } else {
+        throw new AppError(400, `O campo "${campo}" não pode ser editado aqui.`);
+      }
+    }
+    await questao.update({ ...novos, revisada_em: agora() });
+    return questao.get({ plain: true });
+  }
+
+  return { iniciar, marcarInterrompidas, questoes, revisarQuestao };
+}
+
+module.exports = { criarLeituraService };
