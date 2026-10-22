@@ -19,7 +19,7 @@ const STATUS_DA_QUESTAO = ["valida", "a_revisar", "descartada"];
 const LETRAS = ["A", "B", "C", "D", "E"];
 
 function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
-  const { Prova, ProvaArquivo, ProvaPagina, ProvaQuestao } = sequelize.models;
+  const { Prova, ProvaArquivo, ProvaPagina, ProvaQuestao, QuestaoArtigo, Norma } = sequelize.models;
   const aindaLendo = (id) => ({ where: { id, leitura_status: "lendo" } });
 
   async function provaExistente(id) {
@@ -63,7 +63,7 @@ function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = 
         chamadas: [chamadaQuestoes.registro, ...(chamadaGabarito ? [chamadaGabarito.registro] : [])]
       };
       const gravou = await sequelize.transaction(async (transaction) => {
-        const [alterados] = await Prova.update({ leitura_status: "lida", leitura_erro: null, leitura }, { ...aindaLendo(id), transaction });
+        const [alterados] = await Prova.update({ leitura_status: "lida", leitura_erro: null, leitura, classificacao_status: null, classificacao_erro: null, classificacao: null }, { ...aindaLendo(id), transaction });
         if (alterados === 0) return false;
         await ProvaQuestao.destroy({ where: { prova_id: id }, transaction });
         await ProvaQuestao.bulkCreate(questoes.map((q) => ({ ...q, prova_id: id })), { transaction });
@@ -114,9 +114,22 @@ function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = 
   async function questoes(provaId) {
     const prova = await provaExistente(provaId);
     const lista = await ProvaQuestao.findAll({ where: { prova_id: prova.id }, order: [["numero", "ASC"]], raw: true });
+    // As referências (norma e artigo) de cada questão, da classificação (etapa 3c).
+    const referencias = await QuestaoArtigo.findAll({
+      where: { questao_id: lista.map((q) => q.id) },
+      attributes: ["questao_id", "norma_id", "artigo", "papel"],
+      include: [{ model: Norma, as: "norma", attributes: ["nome", "chave"] }],
+      order: [["papel", "ASC"], ["artigo", "ASC"]]
+    });
+    const porQuestao = new Map();
+    for (const r of referencias) {
+      if (!porQuestao.has(r.questao_id)) porQuestao.set(r.questao_id, []);
+      porQuestao.get(r.questao_id).push({ norma_id: r.norma_id, norma: r.norma.nome, chave: r.norma.chave, artigo: r.artigo, papel: r.papel });
+    }
+    const campos = ["id", "banca", "orgao", "cargo", "ano", "gabarito_situacao", "leitura_status", "leitura_erro", "leitura", "classificacao_status", "classificacao_erro", "classificacao"];
     return {
-      prova: { id: prova.id, banca: prova.banca, orgao: prova.orgao, cargo: prova.cargo, ano: prova.ano, gabarito_situacao: prova.gabarito_situacao, leitura_status: prova.leitura_status, leitura_erro: prova.leitura_erro, leitura: prova.leitura },
-      questoes: lista
+      prova: Object.fromEntries(campos.map((c) => [c, prova[c]])),
+      questoes: lista.map((q) => ({ ...q, referencias: porQuestao.get(q.id) || [] }))
     };
   }
 

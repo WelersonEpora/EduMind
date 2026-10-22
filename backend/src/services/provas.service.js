@@ -135,12 +135,16 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
     const porStatus = await ProvaQuestao.count({ where: { prova_id: prova.id }, group: ["status"] });
     const questoes = { valida: 0, a_revisar: 0, descartada: 0 };
     for (const { status, count } of porStatus) questoes[status] = Number(count);
+    const porClassificacao = await ProvaQuestao.count({ where: { prova_id: prova.id }, group: ["classificacao_status"] });
+    const classificadas = { classificada: 0, a_revisar: 0, nao_juridica: 0 };
+    for (const { classificacao_status: status, count } of porClassificacao) if (status) classificadas[status] = Number(count);
     return {
       ...(prova.get ? prova.get({ plain: true }) : prova),
       prova: arquivos.find((a) => a.tipo === "prova") || null,
       gabarito: arquivos.find((a) => a.tipo === "gabarito") || null,
       editais: editais.map((e) => e.edital_id),
-      questoes
+      questoes,
+      classificadas
     };
   }
 

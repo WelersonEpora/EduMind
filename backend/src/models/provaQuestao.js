@@ -21,7 +21,11 @@ module.exports = (sequelize) =>
       problemas: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
       status: { type: DataTypes.STRING(20), allowNull: false },
       editada: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-      revisada_em: { type: DataTypes.DATE }
+      revisada_em: { type: DataTypes.DATE },
+      classificacao_status: { type: DataTypes.STRING(20) },
+      classificacao_problemas: { type: DataTypes.JSONB },
+      norma_citada: { type: DataTypes.TEXT },
+      classificacao_revisada_em: { type: DataTypes.DATE }
     },
     {
       tableName: "prova_questao",

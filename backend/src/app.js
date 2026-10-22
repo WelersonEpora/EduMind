@@ -12,6 +12,7 @@ const { criarFontesService } = require("./services/fontes.service");
 const { criarCoberturaService } = require("./services/cobertura.service");
 const { criarProvasService } = require("./services/provas.service");
 const { criarLeituraService } = require("./services/leitura.service");
+const { criarClassificacaoService } = require("./services/classificacao.service");
 const { criarRotasDeNormas } = require("./routes/normas.routes");
 const { criarRotasDeProvas } = require("./routes/provas.routes");
 const { criarRotasDeEditais } = require("./routes/editais.routes");
@@ -23,7 +24,8 @@ function criarApp({
   dataDir,
   extracaoService = criarExtracaoService({ sequelize }),
   fontesService = criarFontesService({ sequelize, dirNormas: path.join(dataDir, "normas") }),
-  leituraService = criarLeituraService({ sequelize })
+  leituraService = criarLeituraService({ sequelize }),
+  classificacaoService = criarClassificacaoService({ sequelize })
 }) {
   const app = express();
   app.disable("x-powered-by");
@@ -40,7 +42,7 @@ function criarApp({
   );
 
   app.use("/api/v1/normas", criarRotasDeNormas(fontesService));
-  app.use("/api/v1/provas", criarRotasDeProvas(provasService, leituraService));
+  app.use("/api/v1/provas", criarRotasDeProvas(provasService, leituraService, classificacaoService));
 
   app.use(naoEncontrado);
   app.use(tratarErro);

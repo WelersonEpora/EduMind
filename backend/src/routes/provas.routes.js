@@ -10,7 +10,7 @@ const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 const nomeDoArquivo = (file) => Buffer.from(file.originalname, "latin1").toString("utf8");
 
 // Biblioteca de provas anteriores (etapa 3a): upload da prova e do gabarito, dados do concurso e os arquivos.
-function criarRotasDeProvas(provasService, leituraService) {
+function criarRotasDeProvas(provasService, leituraService, classificacaoService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -57,6 +57,17 @@ function criarRotasDeProvas(provasService, leituraService) {
 
   router.patch("/:id/questoes/:questaoId", async (req, res) => {
     res.json({ data: await leituraService.revisarQuestao(req.params.id, req.params.questaoId, req.body || {}) });
+  });
+
+  // Classificação das questões por norma e artigo (etapa 3c): em segundo plano, como a leitura.
+  router.post("/:id/classificacao", async (req, res) => {
+    await classificacaoService.iniciar(req.params.id);
+    res.status(202).json({ data: { classificacao_status: "classificando" } });
+  });
+
+  // { referencias: [{ norma_id, artigo, papel }] } e/ou { classificacao_status }.
+  router.patch("/:id/questoes/:questaoId/classificacao", async (req, res) => {
+    res.json({ data: await classificacaoService.revisar(req.params.id, req.params.questaoId, req.body || {}) });
   });
 
   router.get("/:id/arquivos/:tipo", async (req, res) => {
