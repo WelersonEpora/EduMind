@@ -12,7 +12,8 @@ import {
   confirmarFonte,
   definirUrlDaNorma,
   desligarFonte,
-  enviarVersaoDaNorma
+  enviarVersaoDaNorma,
+  processarVersaoDaNorma
 } from '../services/editais.service'
 import { nomeDoEdital } from '../composables/useEditais'
 
@@ -68,6 +69,8 @@ const aoBuscarUrl = (fonte, norma) =>
   executar(fonte, () => buscarUrlDaNorma(norma.id), 'A busca não achou a URL oficial', 'URL oficial encontrada')
 const aoDefinirUrl = (fonte, norma, url) =>
   executar(fonte, () => definirUrlDaNorma(norma.id, url), 'Não foi possível salvar a URL')
+const aoProcessarVersao = (fonte, norma, versao) =>
+  executar(fonte, () => processarVersaoDaNorma(norma.id, versao.id), 'Não foi possível dividir o texto', 'Texto dividido em artigos')
 const aoEnviarVersao = (fonte, norma, arquivo) =>
   executar(
     fonte,
@@ -104,8 +107,8 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
     <template v-else>
       <p class="resumo">
         <b>{{ resumo.total }}</b> {{ resumo.total === 1 ? 'norma' : 'normas' }} · <b>{{ resumo.confirmadas }}</b> com a
-        identidade confirmada · <b>{{ resumo.comTexto }}</b> com texto. O coletor automático (etapa 2a-2) ainda não existe:
-        por enquanto o texto vem por upload.
+        identidade confirmada · <b>{{ resumo.comTexto }}</b> com texto. O texto enviado é dividido em artigos na hora. O
+        coletor automático (etapa 2a-2) ainda não existe: por enquanto o texto vem por upload.
       </p>
       <div class="grade">
         <FonteNorma
@@ -118,6 +121,7 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
           @buscar-url="aoBuscarUrl(fonte, $event)"
           @definir-url="(norma, url) => aoDefinirUrl(fonte, norma, url)"
           @enviar-versao="(norma, arquivo) => aoEnviarVersao(fonte, norma, arquivo)"
+          @processar-versao="(norma, versao) => aoProcessarVersao(fonte, norma, versao)"
         />
       </div>
     </template>

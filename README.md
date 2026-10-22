@@ -11,10 +11,11 @@ Fora do escopo agora: provas e questões, alunos, tutor, geração de conteúdo,
 
 ## Estado atual
 
-Etapa **2a-1** concluída. O botão "Extrair com IA" da visão geral do edital extrai, com o Gemini, os metadados e a
+Etapa **2b** concluída. O botão "Extrair com IA" da visão geral do edital extrai, com o Gemini, os metadados e a
 árvore do conteúdo programático com as normas citadas; cada trecho citado é conferido por busca no texto da página e
 os artigos são expandidos pelo parser. Na tela **Revisão**, o orientador aprova, rejeita ou corrige cada item. Na tela **Fontes**, as normas dos itens
-aprovados ganham identidade na biblioteca, URL oficial (busca da IA, só domínios oficiais) e o texto por upload manual.
+aprovados ganham identidade na biblioteca, URL oficial (busca da IA, só domínios oficiais) e o texto por upload manual, que é dividido em artigos na hora (com a data da versão e o
+alerta dos artigos alterados depois da publicação do edital).
 
 | Etapa | Conteúdo | Situação |
 |---|---|---|
@@ -23,9 +24,9 @@ aprovados ganham identidade na biblioteca, URL oficial (busca da IA, só domíni
 | 1b-2 | Árvore do conteúdo programático e normas citadas, com IA | feita |
 | 1c | Tela de revisão | feita |
 | 2a-1 | Biblioteca de normas: identidade, URL oficial e upload manual | feita |
-| 2a-2 | Coletor (robots.txt, limite por host, fetch_log) | próxima |
-| 2b | Divisão das normas por artigo e alerta de vigência | — |
-| 2c | Ligação itens × artigos e relatório de cobertura | — |
+| 2a-2 | Coletor (robots.txt, limite por host, fetch_log) | — |
+| 2b | Divisão das normas por artigo e alerta de vigência | feita |
+| 2c | Ligação itens × artigos e relatório de cobertura | próxima |
 
 ## Requisitos
 

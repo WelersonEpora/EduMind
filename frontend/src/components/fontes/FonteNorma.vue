@@ -11,7 +11,16 @@ const props = defineProps({
   fonte: { type: Object, required: true },
   ocupado: { type: Boolean, default: false }
 })
-const emit = defineEmits(['confirmar', 'desligar', 'buscar-url', 'definir-url', 'enviar-versao'])
+const emit = defineEmits(['confirmar', 'desligar', 'buscar-url', 'definir-url', 'enviar-versao', 'processar-versao'])
+
+// "2026" (só o ano) ou "12/03/2026".
+function dataDaVersao(versao) {
+  if (!versao.data_versao) return null
+  if (versao.data_versao_precisao === 'ano') return versao.data_versao.slice(0, 4)
+  return versao.data_versao.split('-').reverse().join('/')
+}
+
+const dataDoEdital = computed(() => props.fonte.vigencia?.dataDoEdital?.split('-').reverse().join('/'))
 
 const CAMPOS = [
   ['jurisdicao', 'Jurisdição', 'BR, SP, TJSP'],
@@ -129,18 +138,45 @@ function confirmar() {
           </form>
         </section>
 
+        <section v-if="fonte.vigencia && (fonte.vigencia.alteradosDepois || fonte.vigencia.talvezDepois)" class="vigencia">
+          <i class="pi pi-exclamation-triangle" />
+          <span>
+            O texto enviado é mais novo que o edital ({{ dataDoEdital }}):
+            <b>{{ fonte.vigencia.alteradosDepois }}</b> {{ fonte.vigencia.alteradosDepois === 1 ? 'artigo alterado' : 'artigos alterados' }} depois
+            <template v-if="fonte.vigencia.talvezDepois"> e {{ fonte.vigencia.talvezDepois }} no mesmo ano (a nota só traz o ano)</template>.
+            <template v-if="fonte.vigencia.citadosAlteradosDepois.length">
+              Cobrados no edital: <b>{{ fonte.vigencia.citadosAlteradosDepois.join(', ') }}</b>.
+            </template>
+            <template v-if="fonte.vigencia.citadosTalvezDepois.length">
+              Talvez: {{ fonte.vigencia.citadosTalvezDepois.join(', ') }}.
+            </template>
+            <template v-if="!fonte.vigencia.citadosAlteradosDepois.length && !fonte.vigencia.citadosTalvezDepois.length">
+              Nenhum deles é cobrado no edital.
+            </template>
+          </span>
+        </section>
+
         <section>
           <span class="rotulo">Texto da norma</span>
           <p v-if="norma.versoes.length === 0" class="instrucao">
             Abra a URL oficial no navegador, salve a página (Ctrl+S) e envie o arquivo aqui. Também serve PDF ou .txt.
           </p>
           <ul v-else class="versoes">
-            <li v-for="versao in norma.versoes" :key="versao.id">
-              <a :href="urlDoArquivoDaVersao(norma.id, versao.id)" target="_blank" rel="noopener">
-                {{ versao.origem === 'upload' ? 'Upload' : 'Coleta' }} em {{ formatarDataHora(versao.acessado_em) }}
-              </a>
-              <span class="mono">sha256 {{ versao.sha256?.slice(0, 10) }}</span>
-              <span v-if="versao.data_versao" class="mono">versão de {{ versao.data_versao }}</span>
+            <li v-for="versao in norma.versoes" :key="versao.id" class="versao">
+              <span class="versao__linha">
+                <a :href="urlDoArquivoDaVersao(norma.id, versao.id)" target="_blank" rel="noopener">
+                  {{ versao.origem === 'upload' ? 'Upload' : 'Coleta' }} em {{ formatarDataHora(versao.acessado_em) }}
+                </a>
+                <template v-if="versao.processada_em">
+                  <b>{{ versao.artigos_total }} artigos</b>
+                  <span v-if="dataDaVersao(versao)" title="Alteração mais recente nas notas de redação">texto de {{ dataDaVersao(versao) }}</span>
+                </template>
+                <span v-else class="pendente">ainda não dividido em artigos</span>
+                <button type="button" class="link" :disabled="ocupado" @click="emit('processar-versao', norma, versao)">processar de novo</button>
+              </span>
+              <ul v-if="versao.avisos?.length" class="avisos-versao">
+                <li v-for="aviso in versao.avisos" :key="aviso">{{ aviso }}</li>
+              </ul>
             </li>
           </ul>
           <input ref="seletor" type="file" accept=".html,.htm,.pdf,.txt" hidden @change="escolherArquivo" />
@@ -253,7 +289,30 @@ function confirmar() {
   gap: 0.6rem;
   align-items: baseline;
 }
-.versoes .mono {
-  color: var(--muted-foreground);
+.versao {
+  display: grid;
+  gap: 0.2rem;
+}
+.versao__linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+.avisos-versao {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.8rem;
+  color: var(--warning-foreground);
+}
+.vigencia {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.4rem;
+  color: var(--warning-foreground);
+  background: color-mix(in oklch, var(--warning) 20%, transparent);
 }
 </style>

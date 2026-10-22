@@ -96,6 +96,11 @@ export async function enviarVersaoDaNorma(normaId, arquivo) {
   return { norma: resposta.data.data, jaExistia: resposta.data.jaExistia }
 }
 
+export async function processarVersaoDaNorma(normaId, versaoId) {
+  const resposta = await http.post(`/api/v1/normas/${normaId}/versoes/${versaoId}/processar`, null, { timeout: TIMEOUT_UPLOAD_MS })
+  return resposta.data.data
+}
+
 export function urlDoArquivoDaVersao(normaId, versaoId) {
   return `/api/v1/normas/${normaId}/versoes/${versaoId}/arquivo`
 }
