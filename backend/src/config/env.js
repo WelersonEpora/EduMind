@@ -32,6 +32,6 @@ module.exports = {
     apiKeyFree: process.env.GEMINI_API_KEY_FREE || "",
     apiKey: process.env.GEMINI_API_KEY || "",
     model: process.env.GEMINI_MODEL || "gemini-flash-latest",
-    timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 240000)
+    timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 420000)
   }
 };
