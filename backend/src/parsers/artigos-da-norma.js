@@ -11,7 +11,9 @@ const NIVEIS = ["parte", "livro", "titulo", "capitulo", "secao", "subsecao"];
 const ROTULOS_DOS_NIVEIS = { parte: "Parte", livro: "Livro", titulo: "Título", capitulo: "Capítulo", secao: "Seção", subsecao: "Subseção" };
 
 // "Art. 1º", "Art. 3o", "Art. 1.072.", "Art. 3º-A.", "Art. 311-A", "Artigo 5º".
-const INICIO_DE_ARTIGO = /^Art(?:igo)?\.?\s*(\d{1,3}(?:\.\d{3})*|\d+)\s*(?:[º°ªo](?![a-z]))?\s*(?:-\s*([A-Z])(?![a-zà-ú]))?\s*[.:–—-]?\s*/i;
+// A letra do artigo vem colada ao hífen ("Artigo 267-A - A autoridade"). Com espaço, é a primeira palavra do texto:
+// a ALESP escreve "Artigo 14 - A nomeação", que não é o artigo 14-A.
+const INICIO_DE_ARTIGO = /^Art(?:igo)?\.?\s*(\d{1,3}(?:\.\d{3})*|\d+)(?:\s*[º°ªo](?![a-z]))?(?:-([A-Z])(?![a-zà-ú]))?\s*[.:–—-]?\s*/i;
 const CABECALHO = /^(PARTE|LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O)\s+([IVXLCDM]+|[ÚU]NIC[OA]|GERAL|ESPECIAL|PRELIMINAR)\b/i;
 const NIVEL_DO_CABECALHO = { parte: "parte", livro: "livro", titulo: "titulo", capitulo: "capitulo", secao: "secao", subsecao: "subsecao" };
 // Só a linha que é o título; artigos e notas citam "o art. 60 do Ato das Disposições Constitucionais Transitórias".
@@ -29,6 +31,18 @@ const TIPOS_DE_NOTA = [
   [/^vig[êe]ncia/i, "vigencia"],
   [/^vetad|^vetado/i, "veto"]
 ];
+// Notas da ALESP: linha própria começando com traço, sem parênteses.
+// "- Artigo 187 com redação dada pela Lei Complementar n° 1.361, de 21/10/2021."
+const NOTA_ALESP = /^-\s+[^\n]*?\b(reda[çc][ãa]o dada|acrescentad[oa]s?|acrescid[oa]s?|inclu[íi]d[oa]s?|revogad[oa]s?|renumerad[oa]s?|reposicionad[oa]s?|vetad[oa]s?)\b[^\n]*$/gim;
+const TIPOS_DE_NOTA_ALESP = [
+  [/^reda/i, "redacao"],
+  [/^acresc|^inclu/i, "inclusao"],
+  [/^revogad/i, "revogacao"],
+  [/^renumerad|^reposicionad/i, "renumeracao"],
+  [/^vetad/i, "veto"]
+];
+// Mais de um artigo numa linha, como a ALESP mostra os revogados: "Artigos 188 e 189 - Revogados.", "Artigos 10 a 12 - ...".
+const GRUPO_DE_ARTIGOS = /^Artigos\s+(\d+(?:-[A-Z])?(?:\s*(?:,|\be\b|\ba\b|\baté(?=\s))\s*\d+(?:-[A-Z])?)+)\s*[-–—.:]\s*/i;
 // Notas que mudam o texto: entram na data da versão.
 const ALTERACOES = new Set(["redacao", "inclusao", "revogacao", "renumeracao"]);
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -65,12 +79,36 @@ function lerNota(texto) {
   return { tipo, texto, alteracao: ALTERACOES.has(tipo), data: ALTERACOES.has(tipo) ? dataDaNota(corpo) : null };
 }
 
+function lerNotaAlesp(texto, palavra) {
+  const tipo = TIPOS_DE_NOTA_ALESP.find(([padrao]) => padrao.test(palavra))?.[1] || "outra";
+  return { tipo, texto, alteracao: ALTERACOES.has(tipo), data: ALTERACOES.has(tipo) ? dataDaNota(texto) : null };
+}
+
 function notasDe(texto) {
-  return [...texto.matchAll(NOTA)].map((m) => lerNota(m[0]));
+  return [...[...texto.matchAll(NOTA)].map((m) => lerNota(m[0])), ...[...texto.matchAll(NOTA_ALESP)].map((m) => lerNotaAlesp(m[0], m[1]))];
 }
 
 function semNotas(texto) {
-  return texto.replace(NOTA, "").replace(/\s+/g, " ").trim();
+  return texto.replace(NOTA, "").replace(NOTA_ALESP, "").replace(/\s+/g, " ").trim();
+}
+
+// "188 e 189" -> ["188", "189"]; "10 a 12" -> ["10", "11", "12"].
+function numerosDoGrupo(lista) {
+  const partes = lista.split(/\s*(,|\be\b|\ba\b|\baté(?=\s))\s*/i).filter((p) => p.trim() !== "");
+  const numeros = [];
+  for (let i = 0; i < partes.length; i += 1) {
+    const parte = partes[i].toLowerCase();
+    if (parte === "a" || parte === "até") {
+      const de = Number(numeros[numeros.length - 1]);
+      const ate = Number(partes[i + 1]);
+      if (Number.isInteger(de) && Number.isInteger(ate) && ate > de && ate - de <= 200) {
+        for (let n = de + 1; n < ate; n += 1) numeros.push(String(n));
+      }
+    } else if (parte !== "," && parte !== "e") {
+      numeros.push(partes[i].toUpperCase());
+    }
+  }
+  return [...new Set(numeros)];
 }
 
 function numeroDoArtigo(digitos, letra) {
@@ -88,7 +126,8 @@ function pareceTitulo(texto) {
 }
 
 function soNota(texto) {
-  return texto.trim().startsWith("(") && semNotas(texto) === "";
+  const inicio = texto.trim()[0];
+  return (inicio === "(" || inicio === "-") && semNotas(texto) === "";
 }
 
 // Comparar a data de uma alteração com outra ({ valor, precisao }). Só o ano: conta como 1º de janeiro.
@@ -131,20 +170,28 @@ function dividirEmArtigos(linhas) {
     const linhas = atual.linhas.slice(0, corte);
     const texto = linhas.join("\n");
     const notas = notasDe(texto);
-    const caput = semNotas(linhas[0].replace(INICIO_DE_ARTIGO, ""));
-    const corpo = semNotas(linhas.map((l, i) => (i === 0 ? l.replace(INICIO_DE_ARTIGO, "") : l)).join(" "));
+    const inicio = atual.grupo ? GRUPO_DE_ARTIGOS : INICIO_DE_ARTIGO;
+    const caput = semNotas(linhas[0].replace(inicio, ""));
+    // Linha a linha: as notas da ALESP ocupam a linha inteira.
+    const corpo = linhas
+      .map((l, i) => semNotas(i === 0 ? l.replace(inicio, "") : l))
+      .filter(Boolean)
+      .join(" ");
     const revogado =
-      notas.some((n) => n.tipo === "revogacao") && (corpo === "" || /^\(?revogad[oa]/i.test(corpo) || /^revogad[oa]\.?$/i.test(caput));
-    artigos.push({
-      numero: atual.numero,
-      ordem: artigos.length,
-      caput,
-      texto,
-      notas,
-      revogado,
-      estrutura: atual.estrutura,
-      redacao_anterior: atual.tachado.length ? atual.tachado.join("\n") : null
-    });
+      (atual.grupo && /^\(?revogad[oa]/i.test(corpo)) ||
+      (notas.some((n) => n.tipo === "revogacao") && (corpo === "" || /^\(?revogad[oa]/i.test(corpo) || /^revogad[oa]\.?$/i.test(caput)));
+    for (const numero of atual.grupo || [atual.numero]) {
+      artigos.push({
+        numero,
+        ordem: artigos.length,
+        caput,
+        texto,
+        notas,
+        revogado,
+        estrutura: atual.estrutura,
+        redacao_anterior: atual.tachado.length ? atual.tachado.join("\n") : null
+      });
+    }
     atual = null;
   };
 
@@ -184,6 +231,22 @@ function dividirEmArtigos(linhas) {
       }
       ultimoNivel = nivel;
       continue;
+    }
+
+    // "Artigos 188 e 189 - Revogados.": um artigo para cada número, com o mesmo texto e as mesmas notas.
+    const grupo = texto && GRUPO_DE_ARTIGOS.exec(texto);
+    if (grupo) {
+      const numeros = numerosDoGrupo(grupo[1])
+        .map((n) => prefixo + n)
+        .filter((n) => !vistos.has(n));
+      if (numeros.length > 0) {
+        fecharArtigo();
+        for (const numero of numeros) vistos.add(numero);
+        atual = { numero: numeros[0], grupo: numeros, linhas: [texto], tachado: [], estrutura: { ...estrutura } };
+        tachadoPendente = null;
+        ultimoNivel = null;
+        continue;
+      }
     }
 
     // Artigo revogado mostrado inteiro tachado, com só a nota vigente na linha: "(Revogado pela Lei nº 13.256, de 2016)"

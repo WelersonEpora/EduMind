@@ -154,3 +154,27 @@ test("texto puro (.txt) também é dividido", async () => {
   const { artigos } = dividirEmArtigos(await linhasDoArquivo(Buffer.from("Art. 1º Primeiro.\nArt. 2º Segundo.\n"), "lei.txt"));
   assert.deepEqual(artigos.map((a) => [a.numero, a.caput]), [["1", "Primeiro."], ["2", "Segundo."]]);
 });
+
+test("ALESP: 'Artigo 14 - A nomeação' não é o 14-A; notas com traço; revogados em grupo", async () => {
+  const html = `<p>Artigo 14 - A nomeação será precedida de concurso.</p>
+<p>Artigo 26 - O funcionário poderá ser transferido.</p>
+<p>- Artigo 26 com redação dada pela Lei Complementar n° 1.361, de 21/10/2021.</p>
+<p><strike>Artigo 188 — O funcionário licenciado.</strike></p>
+<p><strike>Artigo 189 — O órgão médico.</strike></p>
+<p>Artigos 188 e 189 - Revogados.</p>
+<p>- Artigos 188 e 189 revogados pela Lei Complementar n° 1.123, de 01/07/2010.</p>
+<p>Artigo 267-A - A autoridade competente.</p>
+<p>- Artigo 267-A acrescentado pela Lei Complementar n° 1.400, de 05/03/2024.</p>`;
+  const { artigos, dataDaVersao } = dividirEmArtigos(linhasDoHtml(html));
+  assert.deepEqual(
+    artigos.map((a) => [a.numero, a.revogado, a.caput, a.notas.map((n) => [n.tipo, n.data?.valor])]),
+    [
+      ["14", false, "A nomeação será precedida de concurso.", []],
+      ["26", false, "O funcionário poderá ser transferido.", [["redacao", "2021-10-21"]]],
+      ["188", true, "Revogados.", [["revogacao", "2010-07-01"]]],
+      ["189", true, "Revogados.", [["revogacao", "2010-07-01"]]],
+      ["267-A", false, "A autoridade competente.", [["inclusao", "2024-03-05"]]]
+    ]
+  );
+  assert.deepEqual(dataDaVersao, { valor: "2024-03-05", precisao: "dia" });
+});

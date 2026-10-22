@@ -25,11 +25,21 @@ export function pendenciasDaNorma(norma) {
 }
 
 // Texto de um artigo em partes, para as notas de redação ("(Redação dada pela Lei...)") aparecerem em cinza.
+// Também as notas da ALESP, que ocupam a linha inteira e começam com traço ("- Artigo 26 com redação dada pela...").
+const NOTA_ALESP = /^-\s+.*\b(reda[çc][ãa]o dada|acrescentad|acrescid|inclu[íi]d|revogad|renumerad|reposicionad|vetad)/i
+
 export function partesDoArtigo(texto) {
   return String(texto ?? '')
-    .split(/(\([^()]*(?:\([^()]*\)[^()]*)*\))/g)
-    .map((pedaco) => ({
-      texto: pedaco,
-      nota: /^\((Reda[çc][ãa]o dada|Inclu[íi]d|Revogad|Renumerad|Acrescid|Vide|Vig[êe]ncia|Regulamento|Produ[çc][ãa]o|Promulga|VETADO|Vetad)/i.test(pedaco)
-    }))
+    .split('\n')
+    .flatMap((linha, i) => {
+      const quebra = i > 0 ? [{ texto: '\n', nota: false }] : []
+      if (NOTA_ALESP.test(linha)) return [...quebra, { texto: linha, nota: true }]
+      return [
+        ...quebra,
+        ...linha.split(/(\([^()]*(?:\([^()]*\)[^()]*)*\))/g).map((pedaco) => ({
+          texto: pedaco,
+          nota: /^\((Reda[çc][ãa]o dada|Inclu[íi]d|Revogad|Renumerad|Acrescid|Vide|Vig[êe]ncia|Regulamento|Produ[çc][ãa]o|Promulga|VETADO|Vetad)/i.test(pedaco)
+        }))
+      ]
+    })
 }
