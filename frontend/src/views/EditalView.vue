@@ -257,7 +257,7 @@ watch(() => route.params.id, carregar, { immediate: true })
 <style scoped>
 .grade {
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.25rem;
   align-items: start;
 }

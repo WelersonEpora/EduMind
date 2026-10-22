@@ -146,7 +146,7 @@ onMounted(recarregar)
     </nav>
 
     <main class="shell__conteudo">
-      <div class="shell__largura">
+      <div class="shell__largura" :class="{ 'shell__largura--total': route.meta.larguraTotal }">
         <slot />
       </div>
     </main>
@@ -321,6 +321,9 @@ onMounted(recarregar)
 }
 .shell__largura {
   max-width: 1240px;
+}
+.shell__largura--total {
+  max-width: none;
 }
 
 .shell__fundo-gaveta {

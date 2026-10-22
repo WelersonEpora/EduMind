@@ -7,7 +7,8 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/editais' },
     { path: '/editais', name: 'editais', component: EditaisView },
-    { path: '/editais/:id', name: 'edital', component: EditalView }
+    // larguraTotal: a tela usa toda a largura disponível, sem o limite de leitura do shell.
+    { path: '/editais/:id', name: 'edital', component: EditalView, meta: { larguraTotal: true } }
   ]
 })
 
