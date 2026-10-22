@@ -32,6 +32,11 @@ function criarRotasDeNormas(fontesService) {
     res.status(jaExistia ? 200 : 201).json({ data: norma, jaExistia });
   });
 
+  // Divide de novo a versão em artigos.
+  router.post("/:id/versoes/:versaoId/processar", async (req, res) => {
+    res.json({ data: await fontesService.processarVersao(req.params.id, req.params.versaoId) });
+  });
+
   router.get("/:id/versoes/:versaoId/arquivo", async (req, res) => {
     const { caminho, tipo } = await fontesService.arquivoDaVersao(req.params.id, req.params.versaoId);
     res.type(tipo).sendFile(caminho);

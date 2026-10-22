@@ -16,7 +16,10 @@ module.exports = (sequelize) =>
       data_versao_precisao: { type: DataTypes.STRING(10) },
       acessado_em: { type: DataTypes.DATE },
       sha256: { type: DataTypes.STRING(64) },
-      arquivo_caminho: { type: DataTypes.TEXT }
+      arquivo_caminho: { type: DataTypes.TEXT },
+      artigos_total: { type: DataTypes.INTEGER },
+      avisos: { type: DataTypes.JSONB },
+      processada_em: { type: DataTypes.DATE }
     },
     {
       tableName: "norma_versao",

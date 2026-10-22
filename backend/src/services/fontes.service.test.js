@@ -232,3 +232,47 @@ test("upload manual: cada conteúdo novo é uma versão; o mesmo arquivo não du
   await assert.rejects(service.enviarVersao(norma.id, { buffer: html, nomeArquivo: "cp.pdf" }), { status: 400, message: /não é um PDF/ });
   await assert.rejects(service.enviarVersao(crypto.randomUUID(), { buffer: html, nomeArquivo: "cp.html" }), { status: 404 });
 });
+
+test("o upload divide o texto em artigos e alerta os artigos cobrados alterados depois do edital", async (t) => {
+  const { sequelize, service } = await montar(t);
+  const { edital } = await criarEdital(sequelize, "a.pdf");
+  await sequelize.models.Edital.update({ data_publicacao: "2025-07-29" }, { where: { id: edital.id } });
+  const [cp] = await service.listar(edital.id);
+  const norma = await service.confirmar(edital.id, {
+    citacoes: cp.citacoes.map((c) => c.id),
+    jurisdicao: "BR",
+    tipo: "Decreto-Lei",
+    numero: "2.848",
+    ano: "1940",
+    nome: "Código Penal"
+  });
+
+  const html = `<html><head><meta charset="utf-8"></head><body>
+<p>Art. 293. Falsificar papéis públicos. (Redação dada pela Lei nº 15.100, de 2026)</p>
+<p>Art. 294. Fabricar objeto. (Redação dada pela Lei nº 11.111, de 10.1.2019)</p>
+<p>Art. 295. Se o agente é funcionário. (Redação dada pela Lei nº 15.000, de 2025)</p>
+<p>Art. 296. Fora do edital. (Incluído pela Lei nº 15.200, de 3.2.2026)</p>
+</body></html>`;
+  const { norma: comTexto } = await service.enviarVersao(norma.id, { buffer: Buffer.from(html), nomeArquivo: "cp.html" });
+  const [versao] = comTexto.versoes;
+  assert.deepEqual(
+    { artigos: versao.artigos_total, data: versao.data_versao, precisao: versao.data_versao_precisao, avisos: versao.avisos },
+    { artigos: 4, data: "2026-02-03", precisao: "dia", avisos: ["O texto não traz os artigos 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40 e mais 252."] }
+  );
+
+  const [fonte] = await service.listar(edital.id);
+  assert.deepEqual(fonte.citacoes[0].artigos, ["293", "294", "295"]);
+  assert.deepEqual(fonte.vigencia, {
+    dataDoEdital: "2025-07-29",
+    alteradosDepois: 2,
+    talvezDepois: 1,
+    citadosAlteradosDepois: ["293"],
+    citadosTalvezDepois: ["295"]
+  });
+
+  // Processar de novo devolve o mesmo resultado (substitui os artigos da versão, não duplica).
+  const reprocessada = await service.processarVersao(norma.id, versao.id);
+  assert.equal(reprocessada.versoes[0].artigos_total, 4);
+  assert.equal(await sequelize.models.NormaArtigo.count(), 4);
+  await assert.rejects(service.processarVersao(norma.id, crypto.randomUUID()), { status: 404 });
+});

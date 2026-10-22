@@ -9,6 +9,7 @@ const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const logger = require("../shared/logger");
 const { proporIdentidade, chaveDe } = require("./identidade-da-norma");
+const { criarDivisaoService } = require("./divisao.service");
 
 // Fontes das normas de um edital e biblioteca de normas (etapa 2a-1).
 //
@@ -50,11 +51,51 @@ function esferaDe(jurisdicao) {
   return /^[A-Z]{2}$/.test(jurisdicao) ? "estadual" : "tribunal";
 }
 
-function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesquisarNaWeb, agora = () => new Date() }) {
-  const { Edital, EditalItem, ItemNorma, Norma, NormaVersao } = sequelize.models;
+// Quando a alteração de uma nota aconteceu em relação à data de publicação do edital: "depois", "antes" ou "talvez"
+// (a nota só traz o ano, e é o mesmo ano do edital).
+function quandoFoiAlterado(data, dataDoEdital) {
+  if (data.precisao === "dia") return data.valor > dataDoEdital ? "depois" : "antes";
+  const ano = Number(data.valor.slice(0, 4));
+  const anoDoEdital = Number(dataDoEdital.slice(0, 4));
+  if (ano === anoDoEdital) return "talvez";
+  return ano > anoDoEdital ? "depois" : "antes";
+}
+
+function criarFontesService({
+  sequelize,
+  dirNormas,
+  pesquisarNaWeb = gemini.pesquisarNaWeb,
+  agora = () => new Date(),
+  divisao = criarDivisaoService({ sequelize, dirNormas, agora })
+}) {
+  const { Edital, EditalItem, ItemNorma, Norma, NormaVersao, NormaArtigo } = sequelize.models;
+
+  // Alerta de vigência (decisão do orientador, 2026-10-23): o texto enviado pode ser mais novo que o edital. Conta os
+  // artigos da versão mais recente com alteração (Redação dada, Incluído, Revogado...) depois da publicação do edital,
+  // e quais deles o edital cobra. O detalhe por artigo aparece na cobertura (etapa 2c).
+  async function vigencia(normaId, dataDoEdital, citados) {
+    if (!dataDoEdital) return null;
+    const versao = await NormaVersao.findOne({ where: { norma_id: normaId }, order: [["created_at", "DESC"]], attributes: ["id"] });
+    if (!versao) return null;
+    const artigos = await NormaArtigo.findAll({ where: { versao_id: versao.id }, attributes: ["numero", "notas"], raw: true });
+    const depois = [];
+    const talvez = [];
+    for (const artigo of artigos) {
+      const quando = (artigo.notas || []).filter((n) => n.alteracao && n.data).map((n) => quandoFoiAlterado(n.data, dataDoEdital));
+      if (quando.includes("depois")) depois.push(artigo.numero);
+      else if (quando.includes("talvez")) talvez.push(artigo.numero);
+    }
+    return {
+      dataDoEdital,
+      alteradosDepois: depois.length,
+      talvezDepois: talvez.length,
+      citadosAlteradosDepois: depois.filter((n) => citados.has(n)),
+      citadosTalvezDepois: talvez.filter((n) => citados.has(n))
+    };
+  }
 
   async function editalExistente(id) {
-    const edital = eUuid(id) ? await Edital.findByPk(id, { attributes: ["id", "status"] }) : null;
+    const edital = eUuid(id) ? await Edital.findByPk(id, { attributes: ["id", "status", "data_publicacao"] }) : null;
     if (!edital) throw new AppError(404, "Edital não encontrado.");
     return edital;
   }
@@ -78,7 +119,7 @@ function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesq
   // As normas citadas nos itens aprovados, agrupadas: pela norma da biblioteca quando a citação já foi ligada, ou
   // pela identidade proposta quando ainda falta confirmar.
   async function listar(editalId) {
-    await editalExistente(editalId);
+    const edital = await editalExistente(editalId);
     const citacoes = await ItemNorma.findAll({
       include: [{ model: EditalItem, as: "item", where: { edital_id: editalId, status: "aprovado" }, attributes: ["id", "texto"] }],
       order: [[{ model: EditalItem, as: "item" }, "ordem", "ASC"], ["ordem", "ASC"]]
@@ -99,7 +140,9 @@ function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesq
         numero: citacao.numero,
         ano: citacao.ano,
         nome: citacao.nome,
-        artigos_texto: citacao.artigos_texto
+        artigos_texto: citacao.artigos_texto,
+        // Os artigos pedidos, como o parser expandiu o trecho do edital.
+        artigos: (citacao.artigos?.artigos || []).map((a) => a.numero)
       });
     }
 
@@ -114,7 +157,10 @@ function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesq
         confirmada: Boolean(grupo.normaId),
         proposta: grupo.normaId ? null : grupo.proposta,
         norma: norma ? await resumoDaNorma(norma) : null,
-        citacoes: grupo.citacoes
+        citacoes: grupo.citacoes,
+        vigencia: grupo.normaId
+          ? await vigencia(grupo.normaId, edital.data_publicacao, new Set(grupo.citacoes.flatMap((c) => c.artigos)))
+          : null
       });
     }
     return resultado;
@@ -240,7 +286,7 @@ function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesq
         url: norma.url_oficial,
         origem: "upload",
         status: "upload_recebido",
-        // A data de acesso de um upload é a do envio. A data da versão (notas de redação) é lida na etapa 2b.
+        // A data de acesso de um upload é a do envio. A data da versão vem das notas de redação, na divisão.
         acessado_em: agora(),
         sha256,
         arquivo_caminho: relativo
@@ -249,7 +295,23 @@ function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesq
       fs.rmSync(caminho, { force: true });
       throw erro;
     }
+    // A divisão em artigos não desfaz o upload se falhar: o arquivo fica guardado, com o erro como aviso, e pode ser
+    // processado de novo.
+    try {
+      await divisao.processarVersao(id);
+    } catch (erro) {
+      logger.error({ err: erro, versaoId: id }, "divisão da versão em artigos falhou");
+      await NormaVersao.update({ avisos: [`A divisão em artigos falhou: ${erro.message}`] }, { where: { id } });
+    }
     return { norma: await resumoDaNorma(norma), jaExistia: false };
+  }
+
+  // Divide de novo uma versão já guardada (o parser melhorou, ou o upload é anterior à etapa 2b).
+  async function processarVersao(normaId, versaoId) {
+    const versao = eUuid(versaoId) ? await NormaVersao.findOne({ where: { id: versaoId, norma_id: normaId } }) : null;
+    if (!versao) throw new AppError(404, "Versão não encontrada nesta norma.");
+    await divisao.processarVersao(versao.id);
+    return resumoDaNorma(await normaExistente(normaId));
   }
 
   async function arquivoDaVersao(normaId, versaoId) {
@@ -264,7 +326,7 @@ function criarFontesService({ sequelize, dirNormas, pesquisarNaWeb = gemini.pesq
     return Promise.all(normas.map(resumoDaNorma));
   }
 
-  return { listar, confirmar, desligar, buscarUrl, definirUrl, enviarVersao, arquivoDaVersao, biblioteca };
+  return { listar, confirmar, desligar, buscarUrl, definirUrl, enviarVersao, processarVersao, arquivoDaVersao, biblioteca };
 }
 
 module.exports = { criarFontesService, urlOficial, urlDaResposta };
