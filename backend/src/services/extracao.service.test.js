@@ -80,7 +80,8 @@ function geminiFalso(resposta = RESPOSTA_DA_IA, arvore = ARVORE_DA_IA) {
   return { gerarJson, chamadas };
 }
 
-async function montar(t, resposta, arvore) {
+// `antesDeResponder`: promessa que o Gemini falso espera antes de responder (para segurar a extração em andamento).
+async function montar(t, resposta, arvore, { antesDeResponder = Promise.resolve() } = {}) {
   const sequelize = await abrirBancoDeTeste(t);
   const editalService = criarEditalService({
     sequelize,
@@ -89,7 +90,11 @@ async function montar(t, resposta, arvore) {
   });
   const { edital } = await editalService.criarAPartirDoPdf({ buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "e.pdf" });
   const gemini = geminiFalso(resposta, arvore);
-  const service = criarExtracaoService({ sequelize, gerarJson: gemini.gerarJson, agora: () => new Date("2026-10-22T15:00:00Z") });
+  const gerarJson = async (pedido) => {
+    await antesDeResponder;
+    return gemini.gerarJson(pedido);
+  };
+  const service = criarExtracaoService({ sequelize, gerarJson, agora: () => new Date("2026-10-22T15:00:00Z") });
   return { edital, editalService, service, gemini };
 }
 
@@ -211,9 +216,12 @@ test("falha do Gemini grava a mensagem dele; erro inesperado grava mensagem gen�
 });
 
 test("não inicia duas extrações do mesmo edital; edital inexistente dá 404", async (t) => {
-  const { edital, service } = await montar(t);
+  let liberar;
+  const antesDeResponder = new Promise((resolve) => (liberar = resolve));
+  const { edital, service } = await montar(t, undefined, undefined, { antesDeResponder });
   const { concluida } = await service.iniciar(edital.id);
-  await assert.rejects(service.iniciar(edital.id), { status: 409 });
+  await assert.rejects(service.iniciar(edital.id), { status: 409, message: /em andamento/ });
+  liberar();
   await concluida;
   // Terminada, pode extrair de novo.
   await (await service.iniciar(edital.id)).concluida;

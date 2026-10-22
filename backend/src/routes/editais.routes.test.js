@@ -98,3 +98,34 @@ test("extração com IA: 202 com status 'extraindo', 409 se já em andamento, de
   const inexistente = await fetch(`${base}/api/v1/editais/nao-existe/extracao`, { method: "POST" });
   assert.equal(inexistente.status, 404);
 });
+
+test("revisão pela API: aprovar item e a reextração devolver 409 com o código para a tela", async (t) => {
+  const base = await subir(t);
+  const criado = await fetch(`${base}/api/v1/editais`, { method: "POST", body: formularioComPdf(pdfMinimo([["Edital"]]), "e.pdf") });
+  const { data: edital } = await criado.json();
+  await fetch(`${base}/api/v1/editais/${edital.id}/extracao`, { method: "POST" });
+  let status = "extraindo";
+  for (let i = 0; i < 40 && status === "extraindo"; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    status = (await (await fetch(`${base}/api/v1/editais/${edital.id}`)).json()).data.status;
+  }
+  const [bloco] = (await (await fetch(`${base}/api/v1/editais/${edital.id}/conteudo`)).json()).data;
+
+  const patch = (url, corpo) =>
+    fetch(url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) });
+  const aprovado = await patch(`${base}/api/v1/editais/${edital.id}/itens/${bloco.id}`, { status: "aprovado" });
+  assert.equal(aprovado.status, 200);
+  assert.equal((await aprovado.json()).data.status, "aprovado");
+
+  const reextrair = await fetch(`${base}/api/v1/editais/${edital.id}/extracao`, { method: "POST" });
+  assert.equal(reextrair.status, 409);
+  const { error } = await reextrair.json();
+  assert.deepEqual([error.codigo, error.revisados], ["revisao_sera_perdida", 1]);
+
+  const confirmada = await fetch(`${base}/api/v1/editais/${edital.id}/extracao`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ confirmarPerdaDaRevisao: true })
+  });
+  assert.equal(confirmada.status, 202);
+});

@@ -5,9 +5,11 @@ const gemini = require("../ai/gemini.provider");
 const { carregarPrompt } = require("../ai/carregar-prompt");
 const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
+const { dataValida } = require("../shared/datas");
 const logger = require("../shared/logger");
 const { verificarTrecho } = require("./verificar-trecho");
 const { ESQUEMA_ARVORE, montarArvore } = require("./arvore-do-edital");
+const { contarRevisados } = require("./revisao.service");
 
 // Extração do edital com a IA, em duas chamadas: os metadados (etapa 1b-1, ESQUEMA_RESPOSTA) e a árvore do conteúdo
 // programático com as normas citadas (etapa 1b-2, arvore-do-edital.js). A IA lê o texto já extraído de cada página (o
@@ -74,12 +76,6 @@ function textoComMarcasDePagina(paginas) {
 
 function lista(valor) {
   return Array.isArray(valor) ? valor : [];
-}
-
-function dataValida(texto) {
-  if (typeof texto !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(texto)) return false;
-  const data = new Date(`${texto}T00:00:00Z`);
-  return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === texto;
 }
 
 // Lê o JSON da IA e acrescenta a cada item o resultado da conferência do trecho. Campos fora do esquema são
@@ -204,8 +200,23 @@ function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora =
 
   // Marca o edital como "extraindo" (só se já não estiver) e dispara a extração em segundo plano. `concluida` é a
   // promessa da extração: a rota ignora, os testes esperam.
-  async function iniciar(id) {
+  //
+  // A extração nova substitui metadados e árvore. Se o orientador já revisou algum item, só segue com
+  // `confirmarPerdaDaRevisao` (decisão do orientador, 2026-10-22); sem ela, responde 409 com quantos itens seriam
+  // perdidos, para a tela pedir a confirmação.
+  async function iniciar(id, { confirmarPerdaDaRevisao = false } = {}) {
     if (!eUuid(id)) throw new AppError(404, "Edital não encontrado.");
+    const atual = await Edital.findByPk(id, { attributes: ["id", "status", "metadados"] });
+    if (atual && atual.status !== "extraindo" && !confirmarPerdaDaRevisao) {
+      const revisados = await contarRevisados(sequelize, atual);
+      if (revisados > 0) {
+        throw new AppError(
+          409,
+          `${revisados} ${revisados === 1 ? "item já foi revisado" : "itens já foram revisados"}. Extrair de novo substitui tudo e a revisão se perde.`,
+          { codigo: "revisao_sera_perdida", revisados }
+        );
+      }
+    }
     const [alterados] = await Edital.update(
       { status: "extraindo", erro: null },
       { where: { id, status: { [Op.ne]: "extraindo" } } }

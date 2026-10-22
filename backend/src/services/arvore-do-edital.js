@@ -108,4 +108,4 @@ function montarArvore(textoDaResposta, paginas, { novoId = () => crypto.randomUU
   return { itens, normas };
 }
 
-module.exports = { ESQUEMA_ARVORE, montarArvore };
+module.exports = { ESQUEMA_ARVORE, montarArvore, artigosNoEdital };

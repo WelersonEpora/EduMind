@@ -11,7 +11,7 @@ function naoEncontrado(req, res) {
 // eslint-disable-next-line no-unused-vars
 function tratarErro(err, req, res, next) {
   if (err instanceof AppError) {
-    return res.status(err.status).json({ error: { message: err.message } });
+    return res.status(err.status).json({ error: { message: err.message, ...err.dados } });
   }
   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
     return res.status(413).json({ error: { message: "Arquivo grande demais." } });
