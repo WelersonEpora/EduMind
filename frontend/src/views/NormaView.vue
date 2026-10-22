@@ -66,7 +66,7 @@ function escolherVersao(id) {
   router.replace({ query: { ...route.query, versao: id } })
 }
 
-const NIVEIS = ['parte', 'livro', 'titulo', 'capitulo', 'secao', 'subsecao']
+const NIVEIS = ['tomo', 'parte', 'livro', 'titulo', 'capitulo', 'secao', 'subsecao']
 
 function semAcento(texto) {
   return String(texto ?? '')

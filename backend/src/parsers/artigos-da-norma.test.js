@@ -178,3 +178,61 @@ test("ALESP: 'Artigo 14 - A nomeação' não é o 14-A; notas com traço; revoga
   );
   assert.deepEqual(dataDaVersao, { valor: "2024-03-05", precisao: "dia" });
 });
+
+test("letra com travessão, com espaço e ponto, segunda letra; 'art.' minúsculo é citação", async () => {
+  const html = `<p>Art. 406. Incumbe ao escrivão.</p><p>art. 5º da Lei, citado no meio da frase quebrada pelo PDF.</p>
+<p>Art. 406–B. A competência.</p><p>Art. 1.111 - A. O serviço de custódia.</p><p>Art. 806 A. A equipe técnica.</p>
+<p>Art. 359-M-A. Quando os delitos.</p>`;
+  const { artigos, avisos } = dividirEmArtigos(linhasDoHtml(html));
+  assert.deepEqual(
+    artigos.map((a) => [a.numero, a.caput]),
+    [
+      ["406", "Incumbe ao escrivão."],
+      ["406-B", "A competência."],
+      ["1111-A", "O serviço de custódia."],
+      ["806-A", "A equipe técnica."],
+      ["359-M-A", "Quando os delitos."]
+    ]
+  );
+  assert.match(artigos[0].texto, /art\. 5º da Lei/);
+  assert.equal(avisos.filter((a) => a.includes("mais de uma vez")).length, 0);
+});
+
+test("índice no começo do PDF: o artigo sem caput dá lugar ao texto de verdade", async () => {
+  const html = `<p>Art. 1</p><p>- Seção I - Da Estrutura</p><p>Art. 2</p><p>- Seção II - Do Funcionamento</p>
+<p>TOMO I</p><p>CAPÍTULO I</p><p>Art. 1. Primeiro artigo.</p><p>Art. 2. Segundo artigo.</p>`;
+  const { artigos, avisos } = dividirEmArtigos(linhasDoHtml(html));
+  assert.deepEqual(
+    artigos.map((a) => [a.numero, a.ordem, a.caput, a.estrutura.tomo, a.estrutura.capitulo]),
+    [
+      ["1", 0, "Primeiro artigo.", "Tomo I", "Capítulo I"],
+      ["2", 1, "Segundo artigo.", "Tomo I", "Capítulo I"]
+    ]
+  );
+  assert.deepEqual(avisos, []);
+});
+
+test("vários textos no arquivo, cada um com o seu art. 1º: vale o maior, com aviso", async () => {
+  const html = `<p>Art. 1º Fica aprovado o provimento.</p><p>Art. 2º Entra em vigor.</p><p>São Paulo, 4 de setembro de 1989.</p>
+<p>TOMO I</p><p>Art. 1º A Corregedoria.</p><p>Art. 2º São princípios.</p><p>Art. 3º Estimulará.</p>
+<p>São Paulo, 16 de outubro de 2013.</p><p>Art. 1º Cópia menor.</p>`;
+  const { artigos, avisos } = dividirEmArtigos(linhasDoHtml(html));
+  assert.deepEqual(artigos.map((a) => a.caput), ["A Corregedoria.", "São princípios.", "Estimulará."]);
+  assert.equal(artigos[0].estrutura.tomo, "Tomo I");
+  assert.deepEqual(avisos, ["O arquivo traz 3 textos que começam no art. 1º (2, 3, 1 artigos): foi usado o maior. Confira se é o texto da norma."]);
+});
+
+test("cabeçalho: frase quebrada pelo PDF não é cabeçalho; número de rodapé grudado no romano é aceito", async () => {
+  const html = `<p>CAPÍTULO III</p><p>Art. 26. Os ofícios.</p><p>CAPÍTULO IV</p><p>Art. 190. Aplicam-se as regras do</p>
+<p>Capítulo III destas Normas de Serviço.</p><p>Art. 191. Outro.</p><p>CAPÍTULO XI1</p><p>Art. 1.189. Processo eletrônico.</p>`;
+  const { artigos } = dividirEmArtigos(linhasDoHtml(html));
+  assert.deepEqual(
+    artigos.map((a) => [a.numero, a.estrutura.capitulo]),
+    [
+      ["26", "Capítulo III"],
+      ["190", "Capítulo IV"],
+      ["191", "Capítulo IV"],
+      ["1189", "Capítulo XI"]
+    ]
+  );
+});

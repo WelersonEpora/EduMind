@@ -7,15 +7,28 @@
 //
 // É código, sem IA: nunca se inventa texto de lei. O que não se consegue ler com segurança vira aviso.
 
-const NIVEIS = ["parte", "livro", "titulo", "capitulo", "secao", "subsecao"];
-const ROTULOS_DOS_NIVEIS = { parte: "Parte", livro: "Livro", titulo: "Título", capitulo: "Capítulo", secao: "Seção", subsecao: "Subseção" };
+// "Tomo": as Normas de Serviço da Corregedoria (TJSP) são divididas em tomos.
+const NIVEIS = ["tomo", "parte", "livro", "titulo", "capitulo", "secao", "subsecao"];
+const ROTULOS_DOS_NIVEIS = { tomo: "Tomo", parte: "Parte", livro: "Livro", titulo: "Título", capitulo: "Capítulo", secao: "Seção", subsecao: "Subseção" };
 
 // "Art. 1º", "Art. 3o", "Art. 1.072.", "Art. 3º-A.", "Art. 311-A", "Artigo 5º".
-// A letra do artigo vem colada ao hífen ("Artigo 267-A - A autoridade"). Com espaço, é a primeira palavra do texto:
-// a ALESP escreve "Artigo 14 - A nomeação", que não é o artigo 14-A.
-const INICIO_DE_ARTIGO = /^Art(?:igo)?\.?\s*(\d{1,3}(?:\.\d{3})*|\d+)(?:\s*[º°ªo](?![a-z]))?(?:-([A-Z])(?![a-zà-ú]))?\s*[.:–—-]?\s*/i;
-const CABECALHO = /^(PARTE|LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O)\s+([IVXLCDM]+|[ÚU]NIC[OA]|GERAL|ESPECIAL|PRELIMINAR)\b/i;
-const NIVEL_DO_CABECALHO = { parte: "parte", livro: "livro", titulo: "titulo", capitulo: "capitulo", secao: "secao", subsecao: "subsecao" };
+// A letra do artigo vem colada ao hífen ou travessão ("Artigo 267-A - A autoridade", "Art. 406–B."), às vezes com
+// uma segunda letra ("Art. 359-M-A."). Com espaço, só quando seguida de ponto ("Art. 1.111 - A.", "Art. 806 A."): a
+// ALESP escreve "Artigo 14 - A nomeação", e esse "A" é a primeira palavra do texto, não o artigo 14-A.
+// "art. 406" em minúscula no começo da linha é citação no meio da frase, quebrada pelo PDF: não começa artigo.
+const INICIO_DE_ARTIGO =
+  /^(?:Art|ART)(?:igo|IGO)?\.?\s*(\d{1,3}(?:\.\d{3})*|\d+)(?:\s*[º°ªoO](?![a-zA-Z]))?(?:(?:[-–—]|\s+[-–—]?\s*(?=[A-Z]\.))([A-Za-z](?:[-–—][A-Z])?)(?![a-zA-Zà-úÀ-Ú]))?\s*[.:–—-]?\s*/;
+// O romano pode vir com o número de uma nota de rodapé grudado ("CAPÍTULO XI1", nas Normas da Corregedoria).
+const CABECALHO = /^(TOMO|PARTE|LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O)\s+([IVXLCDM]+|[ÚU]NIC[OA]|GERAL|ESPECIAL|PRELIMINAR)(?:\d{1,2})?(?![A-Za-zÀ-ú\d])/i;
+
+// "Capítulo III destas Normas de Serviço..." é uma frase quebrada pelo PDF, não cabeçalho: depois do número vem
+// palavra minúscula.
+function cabecalhoDe(texto) {
+  const cabecalho = texto && CABECALHO.exec(texto);
+  if (!cabecalho) return null;
+  return /^\s+[a-zà-ú]/.test(texto.slice(cabecalho[0].length)) ? null : cabecalho;
+}
+const NIVEL_DO_CABECALHO = { tomo: "tomo", parte: "parte", livro: "livro", titulo: "titulo", capitulo: "capitulo", secao: "secao", subsecao: "subsecao" };
 // Só a linha que é o título; artigos e notas citam "o art. 60 do Ato das Disposições Constitucionais Transitórias".
 const ADCT = /^\s*(ATO DAS )?DISPOSI[ÇC][ÕO]ES CONSTITUCIONAIS TRANSIT[ÓO]RIAS\s*$/i;
 // Depois do último artigo: local e data da assinatura, ou o aviso do Planalto.
@@ -198,6 +211,8 @@ function dividirEmArtigos(linhas) {
   // Depois da assinatura (fim do texto), só o título do ADCT retoma a leitura: na Constituição, o ADCT vem depois do
   // "Brasília, 5 de outubro de 1988." do texto principal.
   let encerrado = false;
+  // Textos anteriores do mesmo arquivo, cada um começando no art. 1º.
+  const textos = [];
   for (const linha of linhas) {
     const texto = linha.texto;
     const jaLeuArtigo = artigos.length + (atual ? 1 : 0) > 0;
@@ -215,9 +230,26 @@ function dividirEmArtigos(linhas) {
       for (const nivel of NIVEIS) delete estrutura[nivel];
       continue;
     }
-    if (encerrado) continue;
+    // Depois da assinatura, um novo "Art. 1º" é outro texto: compilações como as Normas da Corregedoria trazem os
+    // provimentos antes das Normas, e a página da Res. TJSP 850 traz o texto duas vezes. Cada texto é lido à parte e,
+    // no fim, vale o que tem mais artigos (o primeiro, no empate), com aviso. Os cabeçalhos (Tomo, Capítulo) entre um
+    // texto e outro continuam valendo.
+    if (encerrado) {
+      const inicio = texto && INICIO_DE_ARTIGO.exec(texto);
+      if (inicio && numeroDoArtigo(inicio[1], inicio[2]) === "1") {
+        textos.push({ artigos: [...artigos], avisos: [...avisos] });
+        artigos.length = 0;
+        avisos.length = 0;
+        vistos.clear();
+        prefixo = "";
+        tachadoPendente = null;
+        encerrado = false;
+      } else if (!cabecalhoDe(texto)) {
+        continue;
+      }
+    }
 
-    const cabecalho = texto && CABECALHO.exec(texto);
+    const cabecalho = cabecalhoDe(texto);
     if (cabecalho) {
       fecharArtigo();
       const nomeDoNivel = cabecalho[1].normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -254,6 +286,19 @@ function dividirEmArtigos(linhas) {
     const inicio = (texto && INICIO_DE_ARTIGO.exec(texto)) || (texto && linha.tachado && soNota(texto) && INICIO_DE_ARTIGO.exec(linha.tachado));
     if (inicio) {
       const numero = prefixo + numeroDoArtigo(inicio[1], inicio[2]);
+      // Índice no começo do PDF ("Art. 27" sozinho na linha, seguido do nome da seção): o artigo sem caput dá lugar
+      // ao texto de verdade, que vem depois com o mesmo número.
+      if (vistos.has(numero)) {
+        const vazio = atual?.numero === numero && atual.linhas[0].replace(INICIO_DE_ARTIGO, "").trim() === "";
+        const anterior = artigos.findIndex((a) => a.numero === numero && a.caput === "");
+        if (vazio) {
+          atual = null;
+          vistos.delete(numero);
+        } else if (anterior >= 0) {
+          artigos.splice(anterior, 1);
+          vistos.delete(numero);
+        }
+      }
       if (vistos.has(numero)) {
         avisos.push(`O artigo ${numero} aparece mais de uma vez; a repetição ficou no texto do artigo anterior.`);
       } else {
@@ -293,6 +338,16 @@ function dividirEmArtigos(linhas) {
     if (linha.tachado) atual.tachado.push(linha.tachado);
   }
   fecharArtigo();
+  if (textos.length > 0) {
+    textos.push({ artigos: [...artigos], avisos: [...avisos] });
+    const maior = textos.reduce((escolhido, t) => (t.artigos.length > escolhido.artigos.length ? t : escolhido));
+    artigos.splice(0, artigos.length, ...maior.artigos);
+    avisos.splice(0, avisos.length, ...maior.avisos);
+    avisos.push(
+      `O arquivo traz ${textos.length} textos que começam no art. 1º (${textos.map((t) => t.artigos.length).join(", ")} artigos): ` +
+        `foi usado o maior. Confira se é o texto da norma.`
+    );
+  }
 
   // Números que faltam na sequência (sem contar os com letra): a página pode ter omitido artigos revogados há muito
   // tempo. Na cobertura, eles aparecem como não encontrados no texto.
@@ -309,6 +364,10 @@ function dividirEmArtigos(linhas) {
       "Nenhum artigo encontrado. O arquivo pode estar vazio: página que depende de JavaScript salva como 'somente HTML'. Salve como 'Página da Web, completa' ou imprima em PDF."
     );
   }
+  // Artigos do índice descartados deixam buracos na ordem.
+  artigos.forEach((artigo, i) => {
+    artigo.ordem = i;
+  });
   return { artigos, avisos, dataDaVersao: dataMaisRecente(artigos.flatMap((a) => a.notas)) };
 }
 
