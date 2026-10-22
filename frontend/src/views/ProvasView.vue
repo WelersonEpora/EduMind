@@ -125,6 +125,27 @@ const resumo = computed(() => {
 
     <div class="grade">
       <section class="painel">
+        <div class="painel__cabecalho"><h2>Enviar prova</h2></div>
+        <div class="painel__corpo">
+          <form class="formulario" @submit.prevent="seletor.click()">
+            <label><span class="rotulo">Banca</span><InputText v-model="novaProva.banca" size="small" placeholder="VUNESP" /></label>
+            <label><span class="rotulo">Ano</span><InputText v-model="novaProva.ano" size="small" placeholder="2021" inputmode="numeric" /></label>
+            <label class="largo"><span class="rotulo">Órgão</span><InputText v-model="novaProva.orgao" size="small" placeholder="Tribunal de Justiça do Estado de São Paulo" /></label>
+            <label class="largo"><span class="rotulo">Cargo</span><InputText v-model="novaProva.cargo" size="small" placeholder="Escrevente Técnico Judiciário" /></label>
+            <label class="largo">
+              <span class="rotulo">Link de onde baixou</span>
+              <InputText v-model="novaProva.origem_url" size="small" placeholder="https://..." />
+            </label>
+            <span class="largo">
+              <Button type="submit" label="Escolher o PDF da prova e enviar" icon="pi pi-upload" size="small" :loading="enviando" />
+            </span>
+            <input ref="seletor" type="file" accept="application/pdf" hidden @change="aoEscolherArquivo" />
+          </form>
+          <p class="instrucao">O gabarito é enviado depois, no cartão da prova.</p>
+        </div>
+      </section>
+
+      <section class="painel">
         <div class="painel__cabecalho"><h2>Onde procurar</h2></div>
         <div class="painel__corpo">
           <p class="instrucao">
@@ -147,27 +168,6 @@ const resumo = computed(() => {
           <p v-if="area.buscas.length === 0" class="instrucao">
             O edital ainda não tem banca, órgão e cargo extraídos. Extraia e revise o edital primeiro.
           </p>
-        </div>
-      </section>
-
-      <section class="painel">
-        <div class="painel__cabecalho"><h2>Enviar prova</h2></div>
-        <div class="painel__corpo">
-          <form class="formulario" @submit.prevent="seletor.click()">
-            <label><span class="rotulo">Banca</span><InputText v-model="novaProva.banca" size="small" placeholder="VUNESP" /></label>
-            <label><span class="rotulo">Ano</span><InputText v-model="novaProva.ano" size="small" placeholder="2021" inputmode="numeric" /></label>
-            <label class="largo"><span class="rotulo">Órgão</span><InputText v-model="novaProva.orgao" size="small" placeholder="Tribunal de Justiça do Estado de São Paulo" /></label>
-            <label class="largo"><span class="rotulo">Cargo</span><InputText v-model="novaProva.cargo" size="small" placeholder="Escrevente Técnico Judiciário" /></label>
-            <label class="largo">
-              <span class="rotulo">Link de onde baixou</span>
-              <InputText v-model="novaProva.origem_url" size="small" placeholder="https://..." />
-            </label>
-            <span class="largo">
-              <Button type="submit" label="Escolher o PDF da prova e enviar" icon="pi pi-upload" size="small" :loading="enviando" />
-            </span>
-            <input ref="seletor" type="file" accept="application/pdf" hidden @change="aoEscolherArquivo" />
-          </form>
-          <p class="instrucao">O gabarito é enviado depois, no cartão da prova.</p>
         </div>
       </section>
     </div>
@@ -215,7 +215,7 @@ const resumo = computed(() => {
 <style scoped>
 .grade {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   gap: 1.25rem;
   align-items: start;
 }
