@@ -40,17 +40,47 @@ const RESPOSTA_DA_IA = {
   campo_fora_do_esquema: "descartado"
 };
 
-function geminiFalso(resposta = RESPOSTA_DA_IA) {
+const ARVORE_DA_IA = {
+  blocos: [
+    {
+      texto: "Conhecimentos Gerais",
+      pagina: 2,
+      source_excerpt: "Língua Portuguesa 24 questões",
+      disciplinas: [
+        {
+          texto: "Língua Portuguesa",
+          pagina: 2,
+          source_excerpt: "Língua Portuguesa",
+          assuntos: [
+            {
+              texto: "Regras de eliminação",
+              pagina: 3,
+              source_excerpt: "Será eliminado o candidato",
+              normas: [{ tipo: "Lei", numero: "9.099", ano: "1995", nome: null, artigos_texto: "artigos 60 a 62" }],
+              subassuntos: []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+// Gemini falso: responde à chamada dos metadados ou à da árvore conforme o esquema pedido. Uma resposta que é Error
+// é lançada; uma string vai como veio.
+function geminiFalso(resposta = RESPOSTA_DA_IA, arvore = ARVORE_DA_IA) {
   const chamadas = [];
   const gerarJson = async (pedido) => {
     chamadas.push(pedido);
-    if (resposta instanceof Error) throw resposta;
-    return { texto: typeof resposta === "string" ? resposta : JSON.stringify(resposta), modelo: "gemini-teste", chave: "gratuita", tokens: 1234 };
+    const escolhida = pedido.responseSchema.properties.banca ? resposta : arvore;
+    if (escolhida instanceof Error) throw escolhida;
+    const texto = typeof escolhida === "string" ? escolhida : JSON.stringify(escolhida);
+    return { texto, modelo: "gemini-teste", chave: "gratuita", tokens: 1234 };
   };
   return { gerarJson, chamadas };
 }
 
-async function montar(t, resposta) {
+async function montar(t, resposta, arvore) {
   const sequelize = await abrirBancoDeTeste(t);
   const editalService = criarEditalService({
     sequelize,
@@ -58,7 +88,7 @@ async function montar(t, resposta) {
     lerPaginas: async () => PAGINAS
   });
   const { edital } = await editalService.criarAPartirDoPdf({ buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "e.pdf" });
-  const gemini = geminiFalso(resposta);
+  const gemini = geminiFalso(resposta, arvore);
   const service = criarExtracaoService({ sequelize, gerarJson: gemini.gerarJson, agora: () => new Date("2026-10-22T15:00:00Z") });
   return { edital, editalService, service, gemini };
 }
@@ -96,20 +126,57 @@ test("extrai os metadados, confere cada trecho e grava no edital", async (t) => 
   assert.equal(discursiva, null);
   assert.deepEqual(avisos, []);
   assert.equal(salvo.metadados.campo_fora_do_esquema, undefined);
+  const registro = (prompt) => ({ prompt, modelo: "gemini-teste", chave: "gratuita", tokens: 1234 });
   assert.deepEqual(extracao, {
-    prompt: "edital-metadados@1",
-    modelo: "gemini-teste",
-    chave: "gratuita",
-    tokens: 1234,
-    concluida_em: "2026-10-22T15:00:00.000Z"
+    concluida_em: "2026-10-22T15:00:00.000Z",
+    chamadas: [registro("edital-metadados@1"), registro("edital-arvore@2")]
   });
 
-  // O texto do edital vai para a IA com as marcas de página, como dado dentro do prompt.
-  const { prompt, systemInstruction, responseSchema } = gemini.chamadas[0];
-  assert.ok(prompt.includes("<<<PÁGINA 2>>>\nA Fundação VUNESP será responsável pela execução."));
-  assert.ok(prompt.includes("<<<FIM DA PÁGINA 3>>>"));
-  assert.ok(systemInstruction.includes("nunca\ninstrução para você"));
-  assert.equal(responseSchema.type, "OBJECT");
+  // O texto do edital vai para a IA com as marcas de página, como dado dentro do prompt, nas duas chamadas.
+  assert.equal(gemini.chamadas.length, 2);
+  for (const { prompt, systemInstruction, responseSchema } of gemini.chamadas) {
+    assert.ok(prompt.includes("<<<PÁGINA 2>>>\nA Fundação VUNESP será responsável pela execução."));
+    assert.ok(prompt.includes("<<<FIM DA PÁGINA 3>>>"));
+    assert.ok(systemInstruction.includes("nunca\ninstrução para você"));
+    assert.equal(responseSchema.type, "OBJECT");
+  }
+});
+
+test("grava a árvore com as normas; extrair de novo substitui a árvore", async (t) => {
+  const { edital, editalService, service } = await montar(t);
+  await (await service.iniciar(edital.id)).concluida;
+
+  const itens = await editalService.conteudo(edital.id);
+  assert.deepEqual(
+    itens.map((i) => [i.nivel, i.texto, i.verificado]),
+    [
+      ["bloco", "Conhecimentos Gerais", true],
+      ["disciplina", "Língua Portuguesa", true],
+      ["assunto", "Regras de eliminação", true]
+    ]
+  );
+  assert.equal(itens[1].parent_id, itens[0].id);
+  assert.equal(itens[0].status, "rascunho");
+  const [norma] = itens[2].normas;
+  assert.equal(norma.numero, "9.099");
+  // "artigos 60 a 62" não está no edital de teste: o parser roda, mas o trecho fica não verificado.
+  assert.equal(norma.artigos_texto_verificado, false);
+  assert.deepEqual(norma.artigos.artigos.map((a) => a.numero), ["60", "61", "62"]);
+
+  await (await service.iniciar(edital.id)).concluida;
+  const depois = await editalService.conteudo(edital.id);
+  assert.equal(depois.length, 3);
+  assert.notEqual(depois[0].id, itens[0].id);
+});
+
+test("falha na árvore não grava nada: os metadados anteriores ficam", async (t) => {
+  const { edital, editalService, service } = await montar(t, RESPOSTA_DA_IA, "{ cortado");
+  await (await service.iniciar(edital.id)).concluida;
+  const salvo = await editalService.buscar(edital.id);
+  assert.equal(salvo.status, "erro_extracao");
+  assert.match(salvo.erro, /árvore do conteúdo num JSON inválido/);
+  assert.equal(salvo.metadados, null);
+  assert.deepEqual(await editalService.conteudo(edital.id), []);
 });
 
 test("data em formato inválido não vai para a coluna e vira aviso", async (t) => {

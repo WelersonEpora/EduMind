@@ -134,6 +134,10 @@ async function chamarComChaves(corpo, deps) {
   }
 
   const candidato = json.candidates?.[0];
+  // Resposta cortada no limite de tamanho: o JSON vem incompleto e não serve.
+  if (candidato?.finishReason === "MAX_TOKENS") {
+    throw new ErroDoGemini("A resposta da IA passou do tamanho máximo e veio cortada (MAX_TOKENS). O edital é grande demais para uma chamada só.");
+  }
   const texto = extrairTexto(candidato);
   if (!texto.trim()) {
     throw new ErroDoGemini(`O Gemini devolveu uma resposta vazia (finishReason: ${candidato?.finishReason ?? "?"}).`);

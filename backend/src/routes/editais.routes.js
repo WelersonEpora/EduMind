@@ -32,6 +32,10 @@ function criarRotasDeEditais(editalService, extracaoService) {
     res.status(202).json({ data: await editalService.buscar(req.params.id) });
   });
 
+  router.get("/:id/conteudo", async (req, res) => {
+    res.json({ data: await editalService.conteudo(req.params.id) });
+  });
+
   router.get("/:id/paginas/:numero", async (req, res) => {
     res.json({ data: await editalService.pagina(req.params.id, Number(req.params.numero)) });
   });

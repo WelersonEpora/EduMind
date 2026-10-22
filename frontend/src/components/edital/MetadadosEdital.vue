@@ -103,8 +103,10 @@ const ver = (item) => emit('ver-trecho', item)
     </ul>
 
     <p v-if="metadados.extracao" class="rodape mono">
-      {{ metadados.extracao.prompt }} · {{ metadados.extracao.modelo }} · chave {{ metadados.extracao.chave }} ·
-      {{ formatarDataHora(metadados.extracao.concluida_em) }}
+      Extraído em {{ formatarDataHora(metadados.extracao.concluida_em) }}
+      <template v-for="chamada in metadados.extracao.chamadas || []" :key="chamada.prompt">
+        <br />{{ chamada.prompt }} · {{ chamada.modelo }} · chave {{ chamada.chave }} · {{ chamada.tokens ?? '?' }} tokens
+      </template>
     </p>
   </div>
 </template>

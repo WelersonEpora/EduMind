@@ -11,13 +11,16 @@ const { criarExtracaoService } = require("../services/extracao.service");
 const { pdfMinimo } = require("../../test/helpers/pdf-minimo");
 
 // Sobe o app numa porta livre, com o banco de teste vazio, e devolve a URL base.
-// O Gemini é falso: devolve um JSON mínimo depois de `atrasoMs`.
+// O Gemini é falso: devolve um JSON mínimo (metadados ou árvore, conforme o esquema pedido) depois de `atrasoMs`.
 async function subir(t, { atrasoMs = 0 } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-api-"));
   const sequelize = await abrirBancoDeTeste(t);
-  const gerarJson = async () => {
+  const gerarJson = async ({ responseSchema }) => {
     await new Promise((resolve) => setTimeout(resolve, atrasoMs));
-    return { texto: JSON.stringify({ banca: { valor: "VUNESP", pagina: 1, source_excerpt: "Edital" } }), modelo: "m", chave: "gratuita", tokens: 1 };
+    const resposta = responseSchema.properties.banca
+      ? { banca: { valor: "VUNESP", pagina: 1, source_excerpt: "Edital" } }
+      : { blocos: [{ texto: "Bloco", pagina: 1, source_excerpt: "Edital", disciplinas: [] }] };
+    return { texto: JSON.stringify(resposta), modelo: "m", chave: "gratuita", tokens: 1 };
   };
   const extracaoService = criarExtracaoService({ sequelize, gerarJson });
   const servidor = criarApp({ sequelize, dataDir, extracaoService }).listen(0);
@@ -88,6 +91,9 @@ test("extração com IA: 202 com status 'extraindo', 409 se já em andamento, de
     status = (await (await fetch(`${base}/api/v1/editais/${edital.id}`)).json()).data.status;
   }
   assert.equal(status, "extraido");
+
+  const conteudo = await (await fetch(`${base}/api/v1/editais/${edital.id}/conteudo`)).json();
+  assert.deepEqual(conteudo.data.map((i) => [i.nivel, i.texto]), [["bloco", "Bloco"]]);
 
   const inexistente = await fetch(`${base}/api/v1/editais/nao-existe/extracao`, { method: "POST" });
   assert.equal(inexistente.status, 404);

@@ -5,7 +5,11 @@
 module.exports = function definirModelos(sequelize) {
   const Edital = require("./edital")(sequelize);
   const EditalPagina = require("./editalPagina")(sequelize);
+  const EditalItem = require("./editalItem")(sequelize);
+  const ItemNorma = require("./itemNorma")(sequelize);
 
   Edital.hasMany(EditalPagina, { foreignKey: "edital_id", as: "paginas" });
   EditalPagina.belongsTo(Edital, { foreignKey: "edital_id" });
+  Edital.hasMany(EditalItem, { foreignKey: "edital_id", as: "itens" });
+  EditalItem.hasMany(ItemNorma, { foreignKey: "item_id", as: "normas" });
 };

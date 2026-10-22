@@ -25,6 +25,12 @@ export async function enviarEdital(arquivo) {
   return { edital: resposta.data.data, jaExistia: resposta.data.jaExistia }
 }
 
+// Árvore do conteúdo programático em lista, na ordem de leitura, com as normas de cada item.
+export async function buscarConteudo(id) {
+  const resposta = await http.get(`/api/v1/editais/${id}/conteudo`)
+  return resposta.data.data
+}
+
 // Dispara a extração com IA e volta na hora com o edital em "extraindo"; a tela acompanha pelo status.
 export async function iniciarExtracao(id) {
   const resposta = await http.post(`/api/v1/editais/${id}/extracao`)

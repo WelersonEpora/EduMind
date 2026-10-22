@@ -18,7 +18,7 @@ const CAMPOS_DA_LISTA = [
 ];
 
 function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPaginas }) {
-  const { Edital, EditalPagina } = sequelize.models;
+  const { Edital, EditalPagina, EditalItem, ItemNorma } = sequelize.models;
 
   async function buscar(id) {
     const edital = eUuid(id)
@@ -82,12 +82,38 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     return encontrada;
   }
 
+  // Árvore do conteúdo programático em lista, na ordem de leitura (cada item seguido dos seus filhos), com as normas
+  // de cada item. A tela monta a árvore por parent_id.
+  async function conteudo(id) {
+    await buscar(id);
+    const itens = await EditalItem.findAll({
+      where: { edital_id: id },
+      attributes: { exclude: ["edital_id", "created_at", "updated_at"] },
+      include: [{ model: ItemNorma, as: "normas", attributes: { exclude: ["item_id", "created_at", "updated_at"] } }],
+      order: [["ordem", "ASC"], [{ model: ItemNorma, as: "normas" }, "ordem", "ASC"]]
+    });
+    const filhos = new Map();
+    for (const item of itens.map((i) => i.get({ plain: true }))) {
+      if (!filhos.has(item.parent_id)) filhos.set(item.parent_id, []);
+      filhos.get(item.parent_id).push(item);
+    }
+    const emOrdem = [];
+    const percorrer = (parentId) => {
+      for (const item of filhos.get(parentId) || []) {
+        emOrdem.push(item);
+        percorrer(item.id);
+      }
+    };
+    percorrer(null);
+    return emOrdem;
+  }
+
   async function caminhoDoArquivo(id) {
     await buscar(id);
     return path.join(dirUploads, `${id}.pdf`);
   }
 
-  return { listar, buscar, criarAPartirDoPdf, pagina, caminhoDoArquivo };
+  return { listar, buscar, criarAPartirDoPdf, pagina, conteudo, caminhoDoArquivo };
 }
 
 module.exports = { criarEditalService };

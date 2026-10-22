@@ -7,15 +7,18 @@ const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const logger = require("../shared/logger");
 const { verificarTrecho } = require("./verificar-trecho");
+const { ESQUEMA_ARVORE, montarArvore } = require("./arvore-do-edital");
 
-// Extração dos metadados do edital com a IA (etapa 1b-1). A IA lê o texto já extraído de cada página (o mesmo em que
-// a conferência busca os trechos), devolve JSON no formato de ESQUEMA_RESPOSTA, e o código confere cada trecho na
-// página citada. A árvore do conteúdo programático é a etapa 1b-2.
+// Extração do edital com a IA, em duas chamadas: os metadados (etapa 1b-1, ESQUEMA_RESPOSTA) e a árvore do conteúdo
+// programático com as normas citadas (etapa 1b-2, arvore-do-edital.js). A IA lê o texto já extraído de cada página (o
+// mesmo em que a conferência busca os trechos), e o código confere cada trecho na página citada.
 //
-// A chamada ao Gemini pode levar minutos: `iniciar` marca o edital como "extraindo" e devolve na hora; a extração
-// segue em segundo plano e grava "extraido" ou "erro_extracao". A tela acompanha pelo status do edital.
+// As chamadas ao Gemini podem levar minutos: `iniciar` marca o edital como "extraindo" e devolve na hora; a extração
+// segue em segundo plano e grava "extraido" ou "erro_extracao". A tela acompanha pelo status do edital. O resultado
+// só é gravado se as duas chamadas derem certo; refazer a extração substitui os metadados e a árvore inteira.
 
-const PROMPT = "edital-metadados.md";
+const PROMPT_METADADOS = "edital-metadados.md";
+const PROMPT_ARVORE = "edital-arvore.md";
 
 // Subconjunto OpenAPI aceito pelo Gemini em generationConfig.responseSchema.
 const TRECHO = { pagina: { type: "INTEGER" }, source_excerpt: { type: "STRING" } };
@@ -127,10 +130,17 @@ function montarMetadados(textoDaResposta, paginas) {
 }
 
 function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
-  const { Edital, EditalPagina } = sequelize.models;
+  const { Edital, EditalPagina, EditalItem, ItemNorma } = sequelize.models;
   // As gravações do fim da extração só valem se o edital ainda está "extraindo": se ela foi dada como interrompida
   // (marcarInterrompidas), o resultado que chegar depois não passa por cima.
   const aindaExtraindo = (id) => ({ where: { id, status: "extraindo" } });
+
+  // Uma chamada ao Gemini com um dos prompts: a resposta e o registro da chamada (gravado em metadados.extracao).
+  async function chamarIa(arquivoDoPrompt, textoDoEdital, responseSchema) {
+    const { versao, instrucaoDoSistema, prompt } = carregarPrompt(arquivoDoPrompt, { texto_do_edital: textoDoEdital });
+    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema });
+    return { texto: resposta.texto, registro: { prompt: versao, modelo: resposta.modelo, chave: resposta.chave, tokens: resposta.tokens } };
+  }
 
   async function executar(id) {
     try {
@@ -140,32 +150,43 @@ function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora =
         order: [["numero", "ASC"]],
         raw: true
       });
-      const { versao, instrucaoDoSistema, prompt } = carregarPrompt(PROMPT, { texto_do_edital: textoComMarcasDePagina(paginas) });
-      const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema: ESQUEMA_RESPOSTA });
-      const metadados = montarMetadados(resposta.texto, paginas);
+      const textoDoEdital = textoComMarcasDePagina(paginas);
+
+      const chamadaMetadados = await chamarIa(PROMPT_METADADOS, textoDoEdital, ESQUEMA_RESPOSTA);
+      const metadados = montarMetadados(chamadaMetadados.texto, paginas);
+      const chamadaArvore = await chamarIa(PROMPT_ARVORE, textoDoEdital, ESQUEMA_ARVORE);
+      const { itens, normas } = montarArvore(chamadaArvore.texto, paginas);
+
       metadados.extracao = {
-        prompt: versao,
-        modelo: resposta.modelo,
-        chave: resposta.chave,
-        tokens: resposta.tokens,
-        concluida_em: agora().toISOString()
+        concluida_em: agora().toISOString(),
+        chamadas: [chamadaMetadados.registro, chamadaArvore.registro]
       };
       const { banca, orgao, cargo, data_publicacao: data } = metadados.campos;
-      await Edital.update(
-        {
-          banca: banca?.valor || null,
-          orgao: orgao?.valor || null,
-          cargo: cargo?.valor || null,
-          data_publicacao: data && dataValida(data.valor) ? data.valor : null,
-          metadados,
-          status: "extraido",
-          erro: null
-        },
-        aindaExtraindo(id)
+      const gravou = await sequelize.transaction(async (transaction) => {
+        const [alterados] = await Edital.update(
+          {
+            banca: banca?.valor || null,
+            orgao: orgao?.valor || null,
+            cargo: cargo?.valor || null,
+            data_publicacao: data && dataValida(data.valor) ? data.valor : null,
+            metadados,
+            status: "extraido",
+            erro: null
+          },
+          { ...aindaExtraindo(id), transaction }
+        );
+        if (alterados === 0) return false;
+        await EditalItem.destroy({ where: { edital_id: id }, transaction });
+        await EditalItem.bulkCreate(itens.map((item) => ({ ...item, edital_id: id })), { transaction });
+        await ItemNorma.bulkCreate(normas, { transaction });
+        return true;
+      });
+      logger.info(
+        { editalId: id, gravou, itens: itens.length, normas: normas.length, chamadas: metadados.extracao.chamadas },
+        "extração do edital concluída"
       );
-      logger.info({ editalId: id, prompt: versao, chave: resposta.chave, tokens: resposta.tokens }, "metadados extraídos");
     } catch (erro) {
-      logger.error({ err: erro, editalId: id }, "extração dos metadados falhou");
+      logger.error({ err: erro, editalId: id }, "extração do edital falhou");
       const mensagem =
         erro instanceof AppError || erro instanceof gemini.ErroDoGemini
           ? erro.message
@@ -205,4 +226,4 @@ function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora =
   return { iniciar, marcarInterrompidas };
 }
 
-module.exports = { criarExtracaoService, montarMetadados, ESQUEMA_RESPOSTA };
+module.exports = { criarExtracaoService, montarMetadados, textoComMarcasDePagina, ESQUEMA_RESPOSTA };

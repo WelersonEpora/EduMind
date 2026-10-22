@@ -7,7 +7,8 @@ import InputNumber from 'primevue/inputnumber'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import MetadadosEdital from '../components/edital/MetadadosEdital.vue'
-import { buscarEdital, buscarPagina, iniciarExtracao, urlDoArquivo } from '../services/editais.service'
+import ConteudoProgramatico from '../components/edital/ConteudoProgramatico.vue'
+import { buscarConteudo, buscarEdital, buscarPagina, iniciarExtracao, urlDoArquivo } from '../services/editais.service'
 import { nomeDoEdital } from '../composables/useEditais'
 import { formatarBytes, formatarDataHora, STATUS_EDITAL } from '../utils/formatar'
 
@@ -19,9 +20,15 @@ const erro = ref(null)
 const numeroPagina = ref(1)
 const pagina = ref(null)
 const carregandoPagina = ref(false)
-// Item cujo trecho está aberto no leitor (clique no selo de um metadado).
+// Árvore do conteúdo programático (lista de itens), carregada quando a extração terminou.
+const conteudo = ref([])
+// Item cujo trecho está aberto no leitor (clique no selo de um metadado ou de um item da árvore).
 const trechoAberto = ref(null)
 const iniciando = ref(false)
+
+async function carregarConteudo() {
+  conteudo.value = edital.value?.status === 'extraido' ? await buscarConteudo(edital.value.id) : []
+}
 
 // Enquanto a extração roda no backend, consulta o status a cada poucos segundos.
 const INTERVALO_DE_CONSULTA_MS = 3000
@@ -40,8 +47,9 @@ function acompanharExtracao() {
       if (atual.status === 'extraindo') return
       pararConsulta()
       edital.value = atual
+      await carregarConteudo()
       if (atual.status === 'extraido') {
-        toast.add({ severity: 'success', summary: 'Metadados extraídos', detail: 'Confira os trechos citados.', life: 5000 })
+        toast.add({ severity: 'success', summary: 'Edital extraído', detail: 'Confira os trechos citados.', life: 5000 })
       }
     } catch (e) {
       pararConsulta()
@@ -55,10 +63,11 @@ async function carregar(id) {
   edital.value = null
   erro.value = null
   trechoAberto.value = null
+  conteudo.value = []
   try {
     edital.value = await buscarEdital(id)
     numeroPagina.value = 1
-    await carregarPagina()
+    await Promise.all([carregarPagina(), carregarConteudo()])
     acompanharExtracao()
   } catch (e) {
     erro.value = e.message
@@ -67,7 +76,8 @@ async function carregar(id) {
 
 async function extrair() {
   const confirmado =
-    !edital.value.metadados || window.confirm('Extrair de novo? Os metadados atuais serão substituídos pelo novo resultado.')
+    !edital.value.metadados ||
+    window.confirm('Extrair de novo? Os metadados e o conteúdo programático atuais serão substituídos pelo novo resultado.')
   if (!confirmado) return
   iniciando.value = true
   try {
@@ -182,13 +192,18 @@ watch(() => route.params.id, carregar, { immediate: true })
           />
           <div v-else-if="edital.status === 'texto_extraido'" class="painel__corpo pendente">
             A IA extrai banca, órgão, cargo, data de publicação, blocos e disciplinas com o número de questões, regras de
-            corte e prova discursiva. Cada item traz o trecho literal e a página, conferidos por busca no texto. A árvore
-            do conteúdo programático vem na <b>etapa 1b-2</b>.
+            corte, prova discursiva e a árvore do conteúdo programático com as normas citadas. Cada item traz o trecho
+            literal e a página, conferidos por busca no texto.
           </div>
+        </section>
+
+        <section v-if="conteudo.length" class="painel">
+          <div class="painel__cabecalho"><h2>Conteúdo programático</h2></div>
+          <ConteudoProgramatico :itens="conteudo" @ver-trecho="verTrecho" />
         </section>
       </div>
 
-      <section class="painel">
+      <section class="painel leitor">
         <div class="painel__cabecalho">
           <h2>Texto da página</h2>
           <div class="navegacao">
@@ -280,6 +295,16 @@ watch(() => route.params.id, carregar, { immediate: true })
   min-height: 420px;
   max-height: 70vh;
   overflow: auto;
+}
+/* O leitor acompanha a rolagem: o trecho aberto a partir do fim da árvore aparece sem rolar de volta. */
+.leitor {
+  position: sticky;
+  top: 1rem;
+}
+@media (max-width: 1080px) {
+  .leitor {
+    position: static;
+  }
 }
 .texto-pagina--carregando {
   opacity: 0.5;
