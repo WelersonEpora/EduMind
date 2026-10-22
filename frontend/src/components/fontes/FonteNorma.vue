@@ -232,6 +232,12 @@ function confirmar() {
 .formulario label {
   display: grid;
   gap: 0.15rem;
+  min-width: 0;
+}
+/* O campo de texto tem largura mínima própria; sem isso, estoura as colunas estreitas (Ano) para fora do card. */
+.formulario :deep(input) {
+  width: 100%;
+  min-width: 0;
 }
 .formulario .largo,
 .formulario__botoes {
