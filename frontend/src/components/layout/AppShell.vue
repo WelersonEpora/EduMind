@@ -37,7 +37,7 @@ function salvarPreferencia(chave, valor) {
 }
 
 // Telas de um edital: o :id da rota é o edital. Em /normas/:id é uma norma.
-const ROTAS_DO_EDITAL = ['edital', 'revisao', 'fontes', 'cobertura']
+const ROTAS_DO_EDITAL = ['edital', 'revisao', 'fontes', 'cobertura', 'provas']
 
 // Abrir um edital pela URL também o torna o edital ativo do menu.
 watch(
@@ -77,7 +77,8 @@ const itensDoEdital = computed(() => [
   { rotulo: 'Visão geral', icone: 'pi-file', rota: 'edital', para: editalAtivo.value && { name: 'edital', params: { id: editalAtivo.value.id } } },
   { rotulo: 'Revisão', icone: 'pi-check-square', rota: 'revisao', para: editalAtivo.value && { name: 'revisao', params: { id: editalAtivo.value.id } } },
   { rotulo: 'Fontes', icone: 'pi-globe', rota: 'fontes', para: editalAtivo.value && { name: 'fontes', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Cobertura', icone: 'pi-chart-bar', rota: 'cobertura', para: editalAtivo.value && { name: 'cobertura', params: { id: editalAtivo.value.id } } }
+  { rotulo: 'Cobertura', icone: 'pi-chart-bar', rota: 'cobertura', para: editalAtivo.value && { name: 'cobertura', params: { id: editalAtivo.value.id } } },
+  { rotulo: 'Provas anteriores', icone: 'pi-file-edit', rota: 'provas', para: editalAtivo.value && { name: 'provas', params: { id: editalAtivo.value.id } } }
 ])
 
 onMounted(recarregar)

@@ -1,0 +1,225 @@
+<script setup>
+import { computed, ref } from 'vue'
+import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
+import Select from 'primevue/select'
+import Tag from 'primevue/tag'
+import { urlDoArquivoDaProva } from '../../services/provas.service'
+
+// Uma prova da biblioteca: dados do concurso, o PDF da prova, o gabarito com a origem e as ações.
+// escolhida: está na lista do edital (mostra "tirar deste edital"); senão mostra "usar neste edital".
+const props = defineProps({
+  prova: { type: Object, required: true },
+  escolhida: { type: Boolean, default: false },
+  ocupado: { type: Boolean, default: false }
+})
+const emit = defineEmits(['escolher', 'desfazer', 'salvar', 'enviar-gabarito', 'excluir'])
+
+const SITUACOES_DO_GABARITO = [
+  { valor: 'oficial_definitivo', rotulo: 'Oficial definitivo', severidade: 'success' },
+  { valor: 'oficial_preliminar', rotulo: 'Oficial preliminar', severidade: 'warn' },
+  { valor: 'nao_oficial', rotulo: 'Não oficial', severidade: 'danger' }
+]
+
+const titulo = computed(() => [props.prova.banca, props.prova.orgao, props.prova.cargo].filter(Boolean).join(' · ') || 'Prova sem identificação')
+const situacao = computed(() => SITUACOES_DO_GABARITO.find((s) => s.valor === props.prova.gabarito_situacao))
+const semTexto = computed(() => props.prova.prova && props.prova.prova.paginas_com_texto === 0)
+const poucoTexto = computed(() => {
+  const p = props.prova.prova
+  return p && p.paginas_com_texto > 0 && p.paginas_com_texto < p.total_paginas
+})
+
+// Edição dos dados do concurso.
+const editando = ref(false)
+const formulario = ref({})
+function editar() {
+  formulario.value = { banca: props.prova.banca || '', orgao: props.prova.orgao || '', cargo: props.prova.cargo || '', ano: props.prova.ano || '' }
+  editando.value = true
+}
+function salvar() {
+  emit('salvar', { ...formulario.value, ano: formulario.value.ano === '' ? null : String(formulario.value.ano) })
+  editando.value = false
+}
+
+// Envio do gabarito: a origem é obrigatória.
+const gabarito = ref({ situacao: null, origem: '' })
+const seletor = ref(null)
+function escolherGabarito(evento) {
+  const [arquivo] = evento.target.files
+  evento.target.value = ''
+  if (arquivo) emit('enviar-gabarito', arquivo, { gabarito_situacao: gabarito.value.situacao, origem_url: gabarito.value.origem })
+}
+
+function excluir() {
+  if (window.confirm(`Excluir "${titulo.value}" da biblioteca? A prova sai de todos os editais e os arquivos são apagados.`)) emit('excluir')
+}
+</script>
+
+<template>
+  <article class="painel prova">
+    <div class="painel__cabecalho cabecalho">
+      <div>
+        <h3>{{ titulo }}</h3>
+        <span class="ano">{{ prova.ano || 'ano não informado' }}</span>
+      </div>
+      <div class="relevancia" v-if="prova.relevancia">
+        <Tag v-if="prova.relevancia.mesmaBanca" value="mesma banca" severity="success" />
+        <Tag v-if="prova.relevancia.mesmoOrgao" value="mesmo órgão" severity="info" />
+        <Tag v-if="prova.relevancia.mesmoCargo" value="mesmo cargo" severity="info" />
+      </div>
+    </div>
+
+    <div class="painel__corpo corpo">
+      <form v-if="editando" class="formulario" @submit.prevent="salvar">
+        <label><span class="rotulo">Banca</span><InputText v-model="formulario.banca" size="small" /></label>
+        <label><span class="rotulo">Órgão</span><InputText v-model="formulario.orgao" size="small" /></label>
+        <label><span class="rotulo">Cargo</span><InputText v-model="formulario.cargo" size="small" /></label>
+        <label><span class="rotulo">Ano</span><InputText v-model="formulario.ano" size="small" inputmode="numeric" /></label>
+        <span class="botoes">
+          <Button type="submit" label="Salvar" size="small" :disabled="ocupado" />
+          <Button label="Cancelar" size="small" severity="secondary" text @click="editando = false" />
+        </span>
+      </form>
+
+      <section>
+        <span class="rotulo">Prova</span>
+        <p v-if="prova.prova" class="linha">
+          <a :href="urlDoArquivoDaProva(prova.id, 'prova')" target="_blank" rel="noopener">{{ prova.prova.nome }}</a>
+          · {{ prova.prova.total_paginas }} páginas
+          <a v-if="prova.prova.origem_url" :href="prova.prova.origem_url" target="_blank" rel="noopener" class="origem">de onde veio</a>
+        </p>
+        <p v-if="semTexto" class="alerta">
+          <i class="pi pi-exclamation-triangle" /> PDF sem texto selecionável (escaneado): a leitura das questões não vai
+          funcionar com ele. Procure outra cópia.
+        </p>
+        <p v-else-if="poucoTexto" class="alerta">
+          <i class="pi pi-exclamation-triangle" /> Só {{ prova.prova.paginas_com_texto }} de {{ prova.prova.total_paginas }}
+          páginas têm texto.
+        </p>
+      </section>
+
+      <section>
+        <span class="rotulo">Gabarito</span>
+        <p v-if="prova.gabarito" class="linha">
+          <a :href="urlDoArquivoDaProva(prova.id, 'gabarito')" target="_blank" rel="noopener">{{ prova.gabarito.nome }}</a>
+          <Tag v-if="situacao" :value="situacao.rotulo" :severity="situacao.severidade" />
+          <a v-if="prova.gabarito.origem_url" :href="prova.gabarito.origem_url" target="_blank" rel="noopener" class="origem">de onde veio</a>
+        </p>
+        <p v-else class="alerta">Sem gabarito. Sem ele, as questões desta prova não poderão ser comentadas.</p>
+        <div class="gabarito">
+          <Select
+            v-model="gabarito.situacao"
+            :options="SITUACOES_DO_GABARITO"
+            option-label="rotulo"
+            option-value="valor"
+            placeholder="Origem do gabarito"
+            size="small"
+          />
+          <InputText v-model="gabarito.origem" placeholder="Link de onde baixou (opcional)" size="small" class="gabarito__link" />
+          <Button
+            :label="prova.gabarito ? 'Trocar gabarito' : 'Enviar gabarito'"
+            icon="pi pi-upload"
+            size="small"
+            outlined
+            :disabled="!gabarito.situacao || ocupado"
+            @click="seletor.click()"
+          />
+          <input ref="seletor" type="file" accept="application/pdf" hidden @change="escolherGabarito" />
+        </div>
+      </section>
+
+      <div class="acoes">
+        <Button v-if="escolhida" label="Tirar deste edital" size="small" severity="secondary" outlined :disabled="ocupado" @click="emit('desfazer')" />
+        <Button v-else label="Usar neste edital" icon="pi pi-plus" size="small" :disabled="ocupado" @click="emit('escolher')" />
+        <Button v-if="!editando" label="Editar dados" size="small" severity="secondary" text @click="editar" />
+        <Button label="Excluir da biblioteca" size="small" severity="danger" text :disabled="ocupado" @click="excluir" />
+      </div>
+    </div>
+  </article>
+</template>
+
+<style scoped>
+.prova {
+  min-width: 0;
+}
+.cabecalho {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.cabecalho h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.ano {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+.relevancia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+.corpo {
+  display: grid;
+  gap: 0.75rem;
+}
+.rotulo {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+}
+.linha {
+  margin: 0.2rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.origem {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+.alerta {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+  color: var(--warning-foreground);
+}
+.gabarito {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.gabarito__link {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.formulario {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.formulario label {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.formulario :deep(input) {
+  width: 100%;
+}
+.botoes {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+}
+.acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+</style>
