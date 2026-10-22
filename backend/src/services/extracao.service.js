@@ -1,0 +1,208 @@
+"use strict";
+
+const { Op } = require("sequelize");
+const gemini = require("../ai/gemini.provider");
+const { carregarPrompt } = require("../ai/carregar-prompt");
+const { AppError } = require("../shared/errors");
+const { eUuid } = require("../shared/uuid");
+const logger = require("../shared/logger");
+const { verificarTrecho } = require("./verificar-trecho");
+
+// Extração dos metadados do edital com a IA (etapa 1b-1). A IA lê o texto já extraído de cada página (o mesmo em que
+// a conferência busca os trechos), devolve JSON no formato de ESQUEMA_RESPOSTA, e o código confere cada trecho na
+// página citada. A árvore do conteúdo programático é a etapa 1b-2.
+//
+// A chamada ao Gemini pode levar minutos: `iniciar` marca o edital como "extraindo" e devolve na hora; a extração
+// segue em segundo plano e grava "extraido" ou "erro_extracao". A tela acompanha pelo status do edital.
+
+const PROMPT = "edital-metadados.md";
+
+// Subconjunto OpenAPI aceito pelo Gemini em generationConfig.responseSchema.
+const TRECHO = { pagina: { type: "INTEGER" }, source_excerpt: { type: "STRING" } };
+const CAMPO = {
+  type: "OBJECT",
+  nullable: true,
+  properties: { valor: { type: "STRING" }, ...TRECHO },
+  required: ["valor", "pagina", "source_excerpt"]
+};
+const DESCRICAO = {
+  type: "OBJECT",
+  properties: { descricao: { type: "STRING" }, ...TRECHO },
+  required: ["descricao", "pagina", "source_excerpt"]
+};
+const ESQUEMA_RESPOSTA = {
+  type: "OBJECT",
+  properties: {
+    banca: CAMPO,
+    orgao: CAMPO,
+    cargo: CAMPO,
+    data_publicacao: CAMPO,
+    blocos: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          nome: { type: "STRING" },
+          ...TRECHO,
+          disciplinas: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: { nome: { type: "STRING" }, questoes: { type: "INTEGER", nullable: true }, ...TRECHO },
+              required: ["nome", "questoes", "pagina", "source_excerpt"]
+            }
+          }
+        },
+        required: ["nome", "pagina", "source_excerpt", "disciplinas"]
+      }
+    },
+    regras_de_corte: { type: "ARRAY", items: DESCRICAO },
+    discursiva: { ...DESCRICAO, nullable: true }
+  },
+  required: ["banca", "orgao", "cargo", "data_publicacao", "blocos", "regras_de_corte", "discursiva"]
+};
+
+function textoComMarcasDePagina(paginas) {
+  return paginas.map((p) => `<<<PÁGINA ${p.numero}>>>\n${p.texto}\n<<<FIM DA PÁGINA ${p.numero}>>>`).join("\n\n");
+}
+
+function lista(valor) {
+  return Array.isArray(valor) ? valor : [];
+}
+
+function dataValida(texto) {
+  if (typeof texto !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(texto)) return false;
+  const data = new Date(`${texto}T00:00:00Z`);
+  return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === texto;
+}
+
+// Lê o JSON da IA e acrescenta a cada item o resultado da conferência do trecho. Campos fora do esquema são
+// descartados; o que falta vira null ou lista vazia.
+function montarMetadados(textoDaResposta, paginas) {
+  let resposta;
+  try {
+    resposta = JSON.parse(textoDaResposta);
+  } catch {
+    throw new AppError(502, "A IA devolveu uma resposta que não é JSON válido. Tente extrair de novo.");
+  }
+  if (!resposta || typeof resposta !== "object" || Array.isArray(resposta)) {
+    throw new AppError(502, "A IA devolveu uma resposta fora do formato esperado. Tente extrair de novo.");
+  }
+
+  const conferir = (item) => ({
+    pagina: Number.isInteger(item.pagina) ? item.pagina : null,
+    source_excerpt: typeof item.source_excerpt === "string" ? item.source_excerpt : "",
+    ...verificarTrecho(paginas, item)
+  });
+  const campo = (item) => (item && typeof item === "object" ? { valor: String(item.valor ?? ""), ...conferir(item) } : null);
+  const descricao = (item) => ({ descricao: String(item?.descricao ?? ""), ...conferir(item ?? {}) });
+
+  const avisos = [];
+  const metadados = {
+    campos: {
+      banca: campo(resposta.banca),
+      orgao: campo(resposta.orgao),
+      cargo: campo(resposta.cargo),
+      data_publicacao: campo(resposta.data_publicacao)
+    },
+    blocos: lista(resposta.blocos).map((bloco) => ({
+      nome: String(bloco?.nome ?? ""),
+      ...conferir(bloco ?? {}),
+      disciplinas: lista(bloco?.disciplinas).map((disciplina) => ({
+        nome: String(disciplina?.nome ?? ""),
+        questoes: Number.isInteger(disciplina?.questoes) ? disciplina.questoes : null,
+        ...conferir(disciplina ?? {})
+      }))
+    })),
+    regras_de_corte: lista(resposta.regras_de_corte).map(descricao),
+    discursiva: resposta.discursiva && typeof resposta.discursiva === "object" ? descricao(resposta.discursiva) : null,
+    avisos
+  };
+
+  const data = metadados.campos.data_publicacao;
+  if (data && !dataValida(data.valor)) {
+    avisos.push(`A data de publicação veio como "${data.valor}", que não é uma data no formato AAAA-MM-DD.`);
+  }
+  return metadados;
+}
+
+function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
+  const { Edital, EditalPagina } = sequelize.models;
+  // As gravações do fim da extração só valem se o edital ainda está "extraindo": se ela foi dada como interrompida
+  // (marcarInterrompidas), o resultado que chegar depois não passa por cima.
+  const aindaExtraindo = (id) => ({ where: { id, status: "extraindo" } });
+
+  async function executar(id) {
+    try {
+      const paginas = await EditalPagina.findAll({
+        where: { edital_id: id },
+        attributes: ["numero", "texto"],
+        order: [["numero", "ASC"]],
+        raw: true
+      });
+      const { versao, instrucaoDoSistema, prompt } = carregarPrompt(PROMPT, { texto_do_edital: textoComMarcasDePagina(paginas) });
+      const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema: ESQUEMA_RESPOSTA });
+      const metadados = montarMetadados(resposta.texto, paginas);
+      metadados.extracao = {
+        prompt: versao,
+        modelo: resposta.modelo,
+        chave: resposta.chave,
+        tokens: resposta.tokens,
+        concluida_em: agora().toISOString()
+      };
+      const { banca, orgao, cargo, data_publicacao: data } = metadados.campos;
+      await Edital.update(
+        {
+          banca: banca?.valor || null,
+          orgao: orgao?.valor || null,
+          cargo: cargo?.valor || null,
+          data_publicacao: data && dataValida(data.valor) ? data.valor : null,
+          metadados,
+          status: "extraido",
+          erro: null
+        },
+        aindaExtraindo(id)
+      );
+      logger.info({ editalId: id, prompt: versao, chave: resposta.chave, tokens: resposta.tokens }, "metadados extraídos");
+    } catch (erro) {
+      logger.error({ err: erro, editalId: id }, "extração dos metadados falhou");
+      const mensagem =
+        erro instanceof AppError || erro instanceof gemini.ErroDoGemini
+          ? erro.message
+          : "Erro inesperado na extração. Veja o log do backend.";
+      await Edital.update({ status: "erro_extracao", erro: mensagem }, aindaExtraindo(id)).catch((erroAoGravar) =>
+        logger.error({ err: erroAoGravar, editalId: id }, "não gravou o erro da extração")
+      );
+    }
+  }
+
+  // Marca o edital como "extraindo" (só se já não estiver) e dispara a extração em segundo plano. `concluida` é a
+  // promessa da extração: a rota ignora, os testes esperam.
+  async function iniciar(id) {
+    if (!eUuid(id)) throw new AppError(404, "Edital não encontrado.");
+    const [alterados] = await Edital.update(
+      { status: "extraindo", erro: null },
+      { where: { id, status: { [Op.ne]: "extraindo" } } }
+    );
+    if (alterados === 0) {
+      if (await Edital.findByPk(id, { attributes: ["id"] })) {
+        throw new AppError(409, "A extração deste edital já está em andamento.");
+      }
+      throw new AppError(404, "Edital não encontrado.");
+    }
+    return { concluida: executar(id) };
+  }
+
+  // Ao subir o servidor: uma extração que estava em andamento quando o processo parou nunca vai terminar.
+  async function marcarInterrompidas() {
+    const [alterados] = await Edital.update(
+      { status: "erro_extracao", erro: "O backend reiniciou durante a extração. Extraia de novo." },
+      { where: { status: "extraindo" } }
+    );
+    return alterados;
+  }
+
+  return { iniciar, marcarInterrompidas };
+}
+
+module.exports = { criarExtracaoService, montarMetadados, ESQUEMA_RESPOSTA };

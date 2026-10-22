@@ -7,12 +7,20 @@ const os = require("node:os");
 const path = require("node:path");
 const { abrirBancoDeTeste } = require("../../test/helpers/banco");
 const { criarApp } = require("../app");
+const { criarExtracaoService } = require("../services/extracao.service");
 const { pdfMinimo } = require("../../test/helpers/pdf-minimo");
 
 // Sobe o app numa porta livre, com o banco de teste vazio, e devolve a URL base.
-async function subir(t) {
+// O Gemini é falso: devolve um JSON mínimo depois de `atrasoMs`.
+async function subir(t, { atrasoMs = 0 } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-api-"));
-  const servidor = criarApp({ sequelize: await abrirBancoDeTeste(t), dataDir }).listen(0);
+  const sequelize = await abrirBancoDeTeste(t);
+  const gerarJson = async () => {
+    await new Promise((resolve) => setTimeout(resolve, atrasoMs));
+    return { texto: JSON.stringify({ banca: { valor: "VUNESP", pagina: 1, source_excerpt: "Edital" } }), modelo: "m", chave: "gratuita", tokens: 1 };
+  };
+  const extracaoService = criarExtracaoService({ sequelize, gerarJson });
+  const servidor = criarApp({ sequelize, dataDir, extracaoService }).listen(0);
   await new Promise((resolve) => servidor.once("listening", resolve));
   t.after(() => servidor.close());
   return `http://127.0.0.1:${servidor.address().port}`;
@@ -59,5 +67,28 @@ test("erros voltam com mensagem em português", async (t) => {
   assert.equal(naoPdf.status, 400);
 
   const inexistente = await fetch(`${base}/api/v1/editais/nao-existe`);
+  assert.equal(inexistente.status, 404);
+});
+
+test("extração com IA: 202 com status 'extraindo', 409 se já em andamento, depois 'extraido'", async (t) => {
+  const base = await subir(t, { atrasoMs: 300 });
+  const criado = await fetch(`${base}/api/v1/editais`, { method: "POST", body: formularioComPdf(pdfMinimo([["Edital"]]), "e.pdf") });
+  const { data: edital } = await criado.json();
+
+  const iniciada = await fetch(`${base}/api/v1/editais/${edital.id}/extracao`, { method: "POST" });
+  assert.equal(iniciada.status, 202);
+  assert.equal((await iniciada.json()).data.status, "extraindo");
+
+  const repetida = await fetch(`${base}/api/v1/editais/${edital.id}/extracao`, { method: "POST" });
+  assert.equal(repetida.status, 409);
+
+  let status = "extraindo";
+  for (let i = 0; i < 40 && status === "extraindo"; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    status = (await (await fetch(`${base}/api/v1/editais/${edital.id}`)).json()).data.status;
+  }
+  assert.equal(status, "extraido");
+
+  const inexistente = await fetch(`${base}/api/v1/editais/nao-existe/extracao`, { method: "POST" });
   assert.equal(inexistente.status, 404);
 });

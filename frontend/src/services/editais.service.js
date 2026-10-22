@@ -25,6 +25,12 @@ export async function enviarEdital(arquivo) {
   return { edital: resposta.data.data, jaExistia: resposta.data.jaExistia }
 }
 
+// Dispara a extração com IA e volta na hora com o edital em "extraindo"; a tela acompanha pelo status.
+export async function iniciarExtracao(id) {
+  const resposta = await http.post(`/api/v1/editais/${id}/extracao`)
+  return resposta.data.data
+}
+
 export function urlDoArquivo(id) {
   return `/api/v1/editais/${id}/arquivo`
 }

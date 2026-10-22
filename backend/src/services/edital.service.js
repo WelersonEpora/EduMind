@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { AppError } = require("../shared/errors");
+const { eUuid } = require("../shared/uuid");
 const pdfTexto = require("./pdf-texto");
 
 // Recebe o PDF do edital, guarda o arquivo original e o texto de cada página.
@@ -16,14 +17,11 @@ const CAMPOS_DA_LISTA = [
   "status", "created_at", "updated_at"
 ];
 
-// Um id que não é UUID nunca existe; sem esta checagem, o Postgres recusaria a consulta com erro 500.
-const FORMATO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPaginas }) {
   const { Edital, EditalPagina } = sequelize.models;
 
   async function buscar(id) {
-    const edital = FORMATO_UUID.test(id)
+    const edital = eUuid(id)
       ? await Edital.findByPk(id, { attributes: [...CAMPOS_DA_LISTA, "metadados", "erro"], raw: true })
       : null;
     if (!edital) throw new AppError(404, "Edital não encontrado.");

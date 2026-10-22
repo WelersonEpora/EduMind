@@ -6,7 +6,7 @@ const { AppError } = require("../shared/errors");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
-function criarRotasDeEditais(editalService) {
+function criarRotasDeEditais(editalService, extracaoService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -24,6 +24,12 @@ function criarRotasDeEditais(editalService) {
 
   router.get("/:id", async (req, res) => {
     res.json({ data: await editalService.buscar(req.params.id) });
+  });
+
+  // Dispara a extração dos metadados com a IA e responde na hora (202); a tela acompanha pelo status do edital.
+  router.post("/:id/extracao", async (req, res) => {
+    await extracaoService.iniciar(req.params.id);
+    res.status(202).json({ data: await editalService.buscar(req.params.id) });
   });
 
   router.get("/:id/paginas/:numero", async (req, res) => {

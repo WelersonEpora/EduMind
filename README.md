@@ -11,12 +11,14 @@ Fora do escopo agora: provas e questões, alunos, tutor, geração de conteúdo,
 
 ## Estado atual
 
-Etapa **1a** concluída: esqueleto, banco, upload do PDF com texto por página e parser de artigos.
+Etapa **1b-1** concluída: extração dos metadados do edital com o Gemini (botão "Extrair com IA" na visão geral do
+edital), com a conferência de cada trecho citado por busca no texto da página.
 
 | Etapa | Conteúdo | Situação |
 |---|---|---|
 | 1a | Esqueleto, banco, texto por página, parser de artigos | feita |
-| 1b | Extração com IA (Gemini) e verificação dos trechos | próxima |
+| 1b-1 | Extração dos metadados com IA (Gemini) e conferência dos trechos | feita |
+| 1b-2 | Árvore do conteúdo programático com IA | próxima |
 | 1c | Tela de revisão | — |
 | 2a | Coletor (robots.txt, limite por host, fetch_log) e upload manual | — |
 | 2b | Divisão das normas por artigo e alerta de vigência | — |
@@ -75,7 +77,8 @@ backend/src/
   db/                      conexão com o PostgreSQL (Sequelize)
   models/                  models do Sequelize (só das tabelas que o código já usa)
   parsers/artigos.parser.js  expansão de "artigos 293 a 305; 307; 311-A" (código, sem regex, sem IA)
-  services/                regras: edital (upload e páginas), leitura do PDF
+  ai/                      provider do Gemini (chave gratuita primeiro, paga como reserva) e prompts versionados
+  services/                regras: edital (upload e páginas), leitura do PDF, extração com IA, conferência dos trechos
   routes/                  rotas HTTP em /api/v1
   shared/                  logger, erros, middlewares
 backend/database/migrations/  migrations do sequelize-cli (fonte da verdade do schema)
