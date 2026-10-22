@@ -33,6 +33,8 @@ citadas. Edital de teste: TJSP Escrevente Técnico Judiciário 2025 (Vunesp).
   regex e sem IA. Artigos com letra dentro de um intervalo (313-A em "312 a 317") entram só quando
   existem no texto da norma, marcados como `letra_no_intervalo`. Os com letra logo após a ponta
   final também entram (317-A e 317-B em "312 a 317"); se a ponta final já tem letra, ela é o limite exato.
+- Citação por estrutura ("Título II - Capítulos I e II") é lida por código (`parsers/estrutura.parser.js`) e casada
+  com a estrutura guardada em cada artigo; os artigos só entram na cobertura depois que o orientador confere a lista.
 - Artigo revogado é "revogado", não "faltando".
 - Nunca inventar texto de lei. Artigo não encontrado aparece como não encontrado.
 - A busca na web da IA serve só para descobrir a URL oficial de uma norma, nunca para obter o texto.
