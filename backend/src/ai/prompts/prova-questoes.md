@@ -1,6 +1,6 @@
 # Questões da prova
 
-**Versão:** 1
+**Versão:** 2
 
 Lê o texto do caderno de uma prova objetiva de concurso e devolve cada questão: número, disciplina, enunciado,
 alternativas e, se houver, o texto de apoio (indicado só pelo começo e pelo fim, para o código recortar do PDF).
@@ -22,8 +22,11 @@ Regras:
 1. Devolva TODAS as questões objetivas do caderno, na ordem, cada uma uma vez só. Ignore capa, instruções, folha de
    respostas, rascunho e o tema da redação.
 2. "numero": o número da questão como impresso (ex.: 43 para "43."), como inteiro.
-3. "disciplina": o título da parte da prova a que a questão pertence, como impresso no caderno (ex.: "Língua
-   Portuguesa", "Direito Processual Penal"). Se o caderno não separa por disciplina, use null.
+3. "disciplina": o título da parte da prova a que a questão pertence (ex.: "Língua Portuguesa", "Direito Processual
+   Penal"). Este campo NÃO é cópia literal: escreva o nome normalmente, só com a primeira letra das palavras
+   principais em maiúscula, mesmo que o texto do PDF traga letras trocadas ou espaços no meio ("LÍNgUA PORTUgUESA",
+   "I nfORmÁtICa" viram "Língua Portuguesa", "Informática"). Use o mesmo nome em todas as questões da mesma parte. Se o
+   caderno não separa por disciplina, use null.
 4. "enunciado": cópia literal do comando da questão, do primeiro caractere depois do número até antes da alternativa
    (A), com as mesmas palavras, maiúsculas, acentos e pontuação. Não inclua o número da questão. Junte palavras
    separadas por hífen de fim de linha ("tele-" + "trabalho" = "teletrabalho"). Não resuma, não corrija, não use
