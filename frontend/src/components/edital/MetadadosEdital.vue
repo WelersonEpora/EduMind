@@ -73,15 +73,15 @@ const ver = (item) => emit('ver-trecho', item)
         <b>{{ bloco.nome }}</b>
         <TrechoCitado :item="bloco" @ver="ver" />
       </div>
-      <table class="disciplinas">
-        <tbody>
-          <tr v-for="(disciplina, j) in bloco.disciplinas" :key="j">
-            <td>{{ disciplina.nome }}</td>
-            <td class="mono questoes">{{ disciplina.questoes ?? '—' }}</td>
-            <td class="selo"><TrechoCitado :item="disciplina" @ver="ver" /></td>
-          </tr>
-        </tbody>
-      </table>
+      <ul class="disciplinas">
+        <li v-for="(disciplina, j) in bloco.disciplinas" :key="j">
+          <span>{{ disciplina.nome }}</span>
+          <span class="questoes">
+            {{ disciplina.questoes == null ? 'questões não informadas' : `${disciplina.questoes} ${disciplina.questoes === 1 ? 'questão' : 'questões'}` }}
+          </span>
+          <TrechoCitado :item="disciplina" @ver="ver" />
+        </li>
+      </ul>
     </div>
 
     <h3>Regras de corte</h3>
@@ -162,20 +162,21 @@ h3 {
   gap: 0.5rem;
 }
 .disciplinas {
-  width: 100%;
-  border-collapse: collapse;
+  margin: 0;
+  padding: 0;
 }
-.disciplinas td {
+.disciplinas li {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
   padding: 0.3rem 0.25rem;
   border-bottom: 1px solid var(--border);
 }
 .questoes {
-  text-align: right;
-  width: 3rem;
-}
-.selo {
-  text-align: right;
-  width: 1%;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .lista {
   margin: 0;
