@@ -95,9 +95,14 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
           compartilhada entre editais), ache a URL oficial e envie o texto.
         </p>
       </div>
-      <router-link :to="{ name: 'revisao', params: { id: edital.id } }">
-        <Button label="Revisão" icon="pi pi-arrow-left" severity="secondary" outlined size="small" />
-      </router-link>
+      <div class="acoes">
+        <router-link :to="{ name: 'revisao', params: { id: edital.id } }">
+          <Button label="Revisão" icon="pi pi-arrow-left" severity="secondary" outlined size="small" />
+        </router-link>
+        <router-link :to="{ name: 'cobertura', params: { id: edital.id } }">
+          <Button label="Cobertura" icon="pi pi-arrow-right" icon-pos="right" size="small" />
+        </router-link>
+      </div>
     </div>
 
     <Message v-if="fontes.length === 0" severity="info" :closable="false">
@@ -129,6 +134,10 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
 </template>
 
 <style scoped>
+.acoes {
+  display: flex;
+  gap: 0.5rem;
+}
 .resumo {
   margin: 0 0 1rem;
   color: var(--muted-foreground);

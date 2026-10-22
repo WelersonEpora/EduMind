@@ -23,3 +23,13 @@ export function pendenciasDaNorma(norma) {
   if (norma.artigos?.avisos?.length) pendencias.push('cita partes que não são artigos (título, capítulo, seção): conferir')
   return pendencias
 }
+
+// Texto de um artigo em partes, para as notas de redação ("(Redação dada pela Lei...)") aparecerem em cinza.
+export function partesDoArtigo(texto) {
+  return String(texto ?? '')
+    .split(/(\([^()]*(?:\([^()]*\)[^()]*)*\))/g)
+    .map((pedaco) => ({
+      texto: pedaco,
+      nota: /^\((Reda[çc][ãa]o dada|Inclu[íi]d|Revogad|Renumerad|Acrescid|Vide|Vig[êe]ncia|Regulamento|Produ[çc][ãa]o|Promulga|VETADO|Vetad)/i.test(pedaco)
+    }))
+}

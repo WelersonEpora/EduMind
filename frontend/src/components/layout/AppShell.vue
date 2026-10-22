@@ -36,9 +36,12 @@ function salvarPreferencia(chave, valor) {
   }
 }
 
+// Telas de um edital: o :id da rota é o edital. Em /normas/:id é uma norma.
+const ROTAS_DO_EDITAL = ['edital', 'revisao', 'fontes', 'cobertura']
+
 // Abrir um edital pela URL também o torna o edital ativo do menu.
 watch(
-  () => route.params.id,
+  () => (ROTAS_DO_EDITAL.includes(route.name) ? route.params.id : null),
   (id) => {
     if (id) {
       editalAtivoId.value = id
@@ -74,7 +77,7 @@ const itensDoEdital = computed(() => [
   { rotulo: 'Visão geral', icone: 'pi-file', rota: 'edital', para: editalAtivo.value && { name: 'edital', params: { id: editalAtivo.value.id } } },
   { rotulo: 'Revisão', icone: 'pi-check-square', rota: 'revisao', para: editalAtivo.value && { name: 'revisao', params: { id: editalAtivo.value.id } } },
   { rotulo: 'Fontes', icone: 'pi-globe', rota: 'fontes', para: editalAtivo.value && { name: 'fontes', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Cobertura', icone: 'pi-chart-bar', etapa: '2c' }
+  { rotulo: 'Cobertura', icone: 'pi-chart-bar', rota: 'cobertura', para: editalAtivo.value && { name: 'cobertura', params: { id: editalAtivo.value.id } } }
 ])
 
 onMounted(recarregar)
@@ -87,7 +90,7 @@ onMounted(recarregar)
         <i class="pi pi-bars"></i>
       </button>
       <router-link to="/editais" class="shell__marca">Edu<b>Mind</b><small>apoio ao orientador</small></router-link>
-      <span v-if="['edital', 'revisao', 'fontes'].includes(route.name) && editalAtivo" class="shell__contexto">
+      <span v-if="ROTAS_DO_EDITAL.includes(route.name) && editalAtivo" class="shell__contexto">
         Edital ativo: <strong>{{ nomeDoEdital(editalAtivo) }}</strong>
       </span>
     </header>

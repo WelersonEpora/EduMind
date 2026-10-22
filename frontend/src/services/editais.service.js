@@ -124,3 +124,9 @@ export function urlDoArquivoDaVersao(normaId, versaoId) {
 export function urlDoArquivo(id) {
   return `/api/v1/editais/${id}/arquivo`
 }
+
+// Cobertura (etapa 2c): cada artigo pedido no edital cruzado com o texto da norma.
+export async function buscarCobertura(id) {
+  const resposta = await http.get(`/api/v1/editais/${id}/cobertura`)
+  return resposta.data.data
+}

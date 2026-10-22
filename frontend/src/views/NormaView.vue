@@ -8,6 +8,7 @@ import Tag from 'primevue/tag'
 import { buscarArtigosDaVersao, buscarNorma, urlDoArquivoDaVersao } from '../services/editais.service'
 import { nomeDoEdital } from '../composables/useEditais'
 import { formatarDataHora } from '../utils/formatar'
+import { partesDoArtigo } from '../utils/normas'
 
 // Uma norma da biblioteca e o texto de uma versão dividido em artigos, como documento: os cabeçalhos da estrutura
 // (título, capítulo, seção), o texto vigente, as notas de redação, a marca de revogado e a redação anterior tachada.
@@ -50,6 +51,11 @@ async function carregarArtigos() {
     erro.value = e.message
   } finally {
     carregandoArtigos.value = false
+  }
+  // Vindo da cobertura ("?artigo=313-A"): rola até o artigo.
+  if (route.query.artigo && artigos.value.length) {
+    await nextTick()
+    irPara(route.query.artigo)
   }
 }
 
@@ -121,14 +127,6 @@ async function irPara(numero) {
   busca.value = ''
   await nextTick()
   document.getElementById(`art-${numero}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-// Notas de redação ficam em cinza no texto; o resto do texto, como está na página oficial.
-function partes(texto) {
-  return texto.split(/(\([^()]*(?:\([^()]*\)[^()]*)*\))/g).map((pedaco) => ({
-    texto: pedaco,
-    nota: /^\((Reda[çc][ãa]o dada|Inclu[íi]d|Revogad|Renumerad|Acrescid|Vide|Vig[êe]ncia|Regulamento|Produ[çc][ãa]o|Promulga|VETADO|Vetad)/i.test(pedaco)
-  }))
 }
 
 const dataDaVersao = computed(() => {
@@ -210,7 +208,7 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
             <article :id="`art-${artigo.numero}`" class="artigo" :class="{ 'artigo--revogado': artigo.revogado }">
               <Tag v-if="artigo.revogado" value="revogado" severity="danger" class="artigo__marca" />
               <p class="artigo__texto">
-                <template v-for="(parte, i) in partes(artigo.texto_bruto)" :key="i">
+                <template v-for="(parte, i) in partesDoArtigo(artigo.texto_bruto)" :key="i">
                   <span v-if="parte.nota" class="nota">{{ parte.texto }}</span>
                   <template v-else>{{ parte.texto }}</template>
                 </template>
