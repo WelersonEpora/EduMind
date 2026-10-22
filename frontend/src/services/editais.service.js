@@ -32,8 +32,31 @@ export async function buscarConteudo(id) {
 }
 
 // Dispara a extração com IA e volta na hora com o edital em "extraindo"; a tela acompanha pelo status.
-export async function iniciarExtracao(id) {
-  const resposta = await http.post(`/api/v1/editais/${id}/extracao`)
+// Com revisão já feita, o backend responde 409 (codigo "revisao_sera_perdida"); a tela confirma e manda de novo com
+// confirmarPerdaDaRevisao.
+export async function iniciarExtracao(id, { confirmarPerdaDaRevisao = false } = {}) {
+  const resposta = await http.post(`/api/v1/editais/${id}/extracao`, { confirmarPerdaDaRevisao })
+  return resposta.data.data
+}
+
+// Revisão (etapa 1c). Cada chamada devolve o que mudou: os metadados inteiros ou o item com as normas.
+export async function revisarMetadado(id, caminho, alteracoes) {
+  const resposta = await http.patch(`/api/v1/editais/${id}/metadados`, { caminho, ...alteracoes })
+  return resposta.data.data
+}
+
+export async function revisarItem(id, itemId, alteracoes) {
+  const resposta = await http.patch(`/api/v1/editais/${id}/itens/${itemId}`, alteracoes)
+  return resposta.data.data
+}
+
+export async function revisarNorma(id, normaId, alteracoes) {
+  const resposta = await http.patch(`/api/v1/editais/${id}/normas/${normaId}`, alteracoes)
+  return resposta.data.data
+}
+
+export async function aprovarVerificados(id, disciplinaId) {
+  const resposta = await http.post(`/api/v1/editais/${id}/itens/${disciplinaId}/aprovar-verificados`)
   return resposta.data.data
 }
 

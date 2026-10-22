@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import TrechoCitado from './TrechoCitado.vue'
+import { nomeDaNorma, resumoDosArtigos } from '../../utils/normas'
 
 // Um nó da árvore do conteúdo programático, com as normas citadas e os filhos. Bloco e disciplina abrem e fecham.
 const props = defineProps({
@@ -13,20 +14,6 @@ const emit = defineEmits(['ver-trecho'])
 const meusFilhos = computed(() => props.filhos.get(props.item.id) || [])
 const recolhivel = computed(() => ['bloco', 'disciplina'].includes(props.item.nivel) && meusFilhos.value.length > 0)
 
-// "Código Penal", "Estatuto dos Funcionários... (Lei nº 10.261/68)", "Lei nº 9.099/1995".
-function nomeDaNorma(norma) {
-  const numero = norma.numero ? `nº ${norma.numero}${norma.ano ? `/${norma.ano}` : ''}` : ''
-  const especie = [norma.tipo, numero].filter(Boolean).join(' ')
-  if (norma.nome) return numero ? `${norma.nome} (${especie})` : norma.nome
-  return especie || 'Norma sem identificação'
-}
-
-// O que o parser fez com o trecho dos artigos, em uma linha.
-function resumoDosArtigos(norma) {
-  if (!norma.artigos_texto) return 'norma inteira'
-  const quantidade = norma.artigos?.artigos?.length ?? 0
-  return quantidade === 1 ? '1 artigo' : `${quantidade} artigos`
-}
 </script>
 
 <template>

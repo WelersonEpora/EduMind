@@ -71,8 +71,8 @@ function fecharGaveta() {
 
 // Itens do edital ainda não implementados aparecem desativados, com a etapa em que chegam.
 const itensDoEdital = computed(() => [
-  { rotulo: 'Visão geral', icone: 'pi-file', para: editalAtivo.value && { name: 'edital', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Revisão', icone: 'pi-check-square', etapa: '1c' },
+  { rotulo: 'Visão geral', icone: 'pi-file', rota: 'edital', para: editalAtivo.value && { name: 'edital', params: { id: editalAtivo.value.id } } },
+  { rotulo: 'Revisão', icone: 'pi-check-square', rota: 'revisao', para: editalAtivo.value && { name: 'revisao', params: { id: editalAtivo.value.id } } },
   { rotulo: 'Fontes', icone: 'pi-globe', etapa: '2a' },
   { rotulo: 'Cobertura', icone: 'pi-chart-bar', etapa: '2c' }
 ])
@@ -87,7 +87,7 @@ onMounted(recarregar)
         <i class="pi pi-bars"></i>
       </button>
       <router-link to="/editais" class="shell__marca">Edu<b>Mind</b><small>apoio ao orientador</small></router-link>
-      <span v-if="route.name === 'edital' && editalAtivo" class="shell__contexto">
+      <span v-if="['edital', 'revisao'].includes(route.name) && editalAtivo" class="shell__contexto">
         Edital ativo: <strong>{{ nomeDoEdital(editalAtivo) }}</strong>
       </span>
     </header>
@@ -122,7 +122,7 @@ onMounted(recarregar)
           v-if="item.para"
           :to="item.para"
           class="shell__item"
-          :class="{ 'shell__item--ativo': route.name === 'edital' }"
+          :class="{ 'shell__item--ativo': route.name === item.rota }"
           :title="item.rotulo"
           @click="fecharGaveta"
         >

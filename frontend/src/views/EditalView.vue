@@ -1,14 +1,14 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import InputNumber from 'primevue/inputnumber'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import MetadadosEdital from '../components/edital/MetadadosEdital.vue'
 import ConteudoProgramatico from '../components/edital/ConteudoProgramatico.vue'
-import { buscarConteudo, buscarEdital, buscarPagina, iniciarExtracao, urlDoArquivo } from '../services/editais.service'
+import LeitorDePaginas from '../components/edital/LeitorDePaginas.vue'
+import { buscarConteudo, buscarEdital, iniciarExtracao, urlDoArquivo } from '../services/editais.service'
 import { nomeDoEdital } from '../composables/useEditais'
 import { formatarBytes, formatarDataHora, STATUS_EDITAL } from '../utils/formatar'
 
@@ -17,9 +17,6 @@ const toast = useToast()
 
 const edital = ref(null)
 const erro = ref(null)
-const numeroPagina = ref(1)
-const pagina = ref(null)
-const carregandoPagina = ref(false)
 // Árvore do conteúdo programático (lista de itens), carregada quando a extração terminou.
 const conteudo = ref([])
 // Item cujo trecho está aberto no leitor (clique no selo de um metadado ou de um item da árvore).
@@ -66,14 +63,15 @@ async function carregar(id) {
   conteudo.value = []
   try {
     edital.value = await buscarEdital(id)
-    numeroPagina.value = 1
-    await Promise.all([carregarPagina(), carregarConteudo()])
+    await carregarConteudo()
     acompanharExtracao()
   } catch (e) {
     erro.value = e.message
   }
 }
 
+// Extrair de novo substitui tudo. Com revisão já feita, o backend responde 409 dizendo quantos itens se perdem, e a
+// extração só segue com a confirmação explícita do orientador.
 async function extrair() {
   const confirmado =
     !edital.value.metadados ||
@@ -81,7 +79,16 @@ async function extrair() {
   if (!confirmado) return
   iniciando.value = true
   try {
-    edital.value = await iniciarExtracao(edital.value.id)
+    try {
+      edital.value = await iniciarExtracao(edital.value.id)
+    } catch (e) {
+      const dados = e.response?.data?.error
+      if (dados?.codigo !== 'revisao_sera_perdida') throw e
+      const itens = dados.revisados === 1 ? 'item' : 'itens'
+      if (!window.confirm(`${dados.message}\n\nExtrair de novo mesmo assim e perder a revisão de ${dados.revisados} ${itens}?`)) return
+      edital.value = await iniciarExtracao(edital.value.id, { confirmarPerdaDaRevisao: true })
+    }
+    trechoAberto.value = null
     acompanharExtracao()
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Não foi possível extrair', detail: e.message, life: 6000 })
@@ -90,49 +97,7 @@ async function extrair() {
   }
 }
 
-function verTrecho(item) {
-  trechoAberto.value = item
-  irPara(item.verificado ? item.pagina : (item.pagina_encontrada ?? item.pagina))
-}
-
-function escaparRegex(texto) {
-  return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-// Texto da página em partes, com o trecho aberto marcado quando ele está nesta página. A busca ignora diferença de
-// espaços e quebras de linha; um trecho que só casa ignorando a hifenização (como a conferência do backend faz)
-// aparece no quadro acima do texto, sem marca.
-const partesDaPagina = computed(() => {
-  const texto = pagina.value?.texto || ''
-  const trecho = trechoAberto.value?.source_excerpt?.trim()
-  const achado = trecho ? new RegExp(trecho.split(/\s+/).map(escaparRegex).join('\\s+')).exec(texto) : null
-  if (!achado) return [{ texto, marcado: false }]
-  return [
-    { texto: texto.slice(0, achado.index), marcado: false },
-    { texto: achado[0], marcado: true },
-    { texto: texto.slice(achado.index + achado[0].length), marcado: false }
-  ]
-})
-
 onBeforeUnmount(pararConsulta)
-
-async function carregarPagina() {
-  if (!edital.value) return
-  carregandoPagina.value = true
-  try {
-    pagina.value = await buscarPagina(edital.value.id, numeroPagina.value)
-  } catch (e) {
-    erro.value = e.message
-  } finally {
-    carregandoPagina.value = false
-  }
-}
-
-function irPara(numero) {
-  if (!edital.value) return
-  numeroPagina.value = Math.min(Math.max(1, numero || 1), edital.value.total_paginas)
-  carregarPagina()
-}
 
 watch(() => route.params.id, carregar, { immediate: true })
 </script>
@@ -146,9 +111,14 @@ watch(() => route.params.id, carregar, { immediate: true })
         <h1>{{ nomeDoEdital(edital) }}</h1>
         <p>Visão geral do edital. O texto de cada página fica guardado para conferir os trechos citados pela IA.</p>
       </div>
-      <a :href="urlDoArquivo(edital.id)" target="_blank" rel="noopener">
-        <Button label="Abrir PDF original" icon="pi pi-external-link" severity="secondary" outlined size="small" />
-      </a>
+      <div class="acoes">
+        <router-link v-if="edital.status === 'extraido'" :to="{ name: 'revisao', params: { id: edital.id } }">
+          <Button label="Revisar" icon="pi pi-check-square" size="small" />
+        </router-link>
+        <a :href="urlDoArquivo(edital.id)" target="_blank" rel="noopener">
+          <Button label="Abrir PDF original" icon="pi pi-external-link" severity="secondary" outlined size="small" />
+        </a>
+      </div>
     </div>
 
     <div class="grade">
@@ -188,7 +158,7 @@ watch(() => route.params.id, carregar, { immediate: true })
           <MetadadosEdital
             v-if="edital.metadados && edital.status !== 'extraindo'"
             :metadados="edital.metadados"
-            @ver-trecho="verTrecho"
+            @ver-trecho="trechoAberto = $event"
           />
           <div v-else-if="edital.status === 'texto_extraido'" class="painel__corpo pendente">
             A IA extrai banca, órgão, cargo, data de publicação, blocos e disciplinas com o número de questões, regras de
@@ -199,7 +169,7 @@ watch(() => route.params.id, carregar, { immediate: true })
 
         <section v-if="edital.status === 'extraido'" class="painel">
           <div class="painel__cabecalho"><h2>Conteúdo programático</h2></div>
-          <ConteudoProgramatico v-if="conteudo.length" :itens="conteudo" @ver-trecho="verTrecho" />
+          <ConteudoProgramatico v-if="conteudo.length" :itens="conteudo" @ver-trecho="trechoAberto = $event" />
           <div v-else class="painel__corpo pendente">
             Nenhum item extraído. Se este edital foi extraído antes da árvore do conteúdo existir, use "Extrair de novo"
             em Metadados.
@@ -207,54 +177,22 @@ watch(() => route.params.id, carregar, { immediate: true })
         </section>
       </div>
 
-      <section class="painel leitor">
-        <div class="painel__cabecalho">
-          <h2>Texto da página</h2>
-          <div class="navegacao">
-            <Button icon="pi pi-angle-left" text rounded aria-label="Página anterior" :disabled="numeroPagina <= 1" @click="irPara(numeroPagina - 1)" />
-            <InputNumber
-              :model-value="numeroPagina"
-              :min="1"
-              :max="edital.total_paginas"
-              input-class="navegacao__numero"
-              aria-label="Número da página"
-              @update:model-value="irPara"
-            />
-            <span class="mono">de {{ edital.total_paginas }}</span>
-            <Button
-              icon="pi pi-angle-right"
-              text
-              rounded
-              aria-label="Próxima página"
-              :disabled="numeroPagina >= edital.total_paginas"
-              @click="irPara(numeroPagina + 1)"
-            />
-          </div>
-        </div>
-        <div class="painel__corpo">
-          <div v-if="trechoAberto" class="trecho-aberto">
-            <div>
-              <span class="rotulo">Trecho citado pela IA · p. {{ trechoAberto.pagina ?? '?' }}</span>
-              <p>“{{ trechoAberto.source_excerpt }}”</p>
-            </div>
-            <Button icon="pi pi-times" text rounded size="small" aria-label="Fechar trecho" @click="trechoAberto = null" />
-          </div>
-          <div class="documento texto-pagina" :class="{ 'texto-pagina--carregando': carregandoPagina }">
-            <template v-if="pagina && pagina.texto">
-              <template v-for="(parte, i) in partesDaPagina" :key="i">
-                <mark v-if="parte.marcado">{{ parte.texto }}</mark>
-                <template v-else>{{ parte.texto }}</template>
-              </template>
-            </template>
-            <span v-else-if="pagina" class="pendente">Esta página não tem texto selecionável.</span>
-          </div>
-        </div>
-      </section>
+      <LeitorDePaginas
+        :edital-id="edital.id"
+        :total-paginas="edital.total_paginas"
+        :trecho="trechoAberto"
+        @fechar-trecho="trechoAberto = null"
+      />
     </div>
   </template>
 </template>
 
 <style scoped>
+.acoes {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
 .grade {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -284,49 +222,6 @@ watch(() => route.params.id, carregar, { immediate: true })
 }
 .pendente {
   color: var(--muted-foreground);
-}
-.navegacao {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-.navegacao :deep(.navegacao__numero) {
-  width: 4.5rem;
-  text-align: center;
-  padding: 0.3rem 0.4rem;
-}
-.texto-pagina {
-  min-height: 420px;
-  max-height: 70vh;
-  overflow: auto;
-}
-/* O leitor acompanha a rolagem: o trecho aberto a partir do fim da árvore aparece sem rolar de volta. */
-.leitor {
-  position: sticky;
-  top: 1rem;
-}
-@media (max-width: 1080px) {
-  .leitor {
-    position: static;
-  }
-}
-.texto-pagina--carregando {
-  opacity: 0.5;
-}
-.trecho-aberto {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding: 0.6rem 0.8rem;
-  border-left: 3px solid var(--mark);
-  background: var(--muted);
-  border-radius: 0.35rem;
-}
-.trecho-aberto p {
-  margin: 0.2rem 0 0;
-  font-family: var(--font-doc);
 }
 @media (max-width: 1080px) {
   .grade {

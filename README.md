@@ -11,17 +11,17 @@ Fora do escopo agora: provas e questões, alunos, tutor, geração de conteúdo,
 
 ## Estado atual
 
-Etapa **1b** concluída: o botão "Extrair com IA" da visão geral do edital extrai, com o Gemini, os metadados e a
-árvore do conteúdo programático com as normas citadas. Cada trecho citado é conferido por busca no texto da página, e
-os artigos de cada norma são expandidos pelo parser.
+Etapa **1c** concluída. O botão "Extrair com IA" da visão geral do edital extrai, com o Gemini, os metadados e a
+árvore do conteúdo programático com as normas citadas; cada trecho citado é conferido por busca no texto da página e
+os artigos são expandidos pelo parser. Na tela **Revisão**, o orientador aprova, rejeita ou corrige cada item.
 
 | Etapa | Conteúdo | Situação |
 |---|---|---|
 | 1a | Esqueleto, banco, texto por página, parser de artigos | feita |
 | 1b-1 | Extração dos metadados com IA (Gemini) e conferência dos trechos | feita |
 | 1b-2 | Árvore do conteúdo programático e normas citadas, com IA | feita |
-| 1c | Tela de revisão | próxima |
-| 2a | Coletor (robots.txt, limite por host, fetch_log) e upload manual | — |
+| 1c | Tela de revisão | feita |
+| 2a | Coletor (robots.txt, limite por host, fetch_log) e upload manual | próxima |
 | 2b | Divisão das normas por artigo e alerta de vigência | — |
 | 2c | Ligação itens × artigos e relatório de cobertura | — |
 
