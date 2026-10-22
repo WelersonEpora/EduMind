@@ -13,6 +13,9 @@ const { ESQUEMA_ARVORE, montarArvore } = require("./arvore-do-edital");
 // programático com as normas citadas (etapa 1b-2, arvore-do-edital.js). A IA lê o texto já extraído de cada página (o
 // mesmo em que a conferência busca os trechos), e o código confere cada trecho na página citada.
 //
+// As duas chamadas rodam em paralelo e só com a chave paga (decisão do orientador em 2026-10-22: a gratuita, sob
+// "alta demanda", segurava cada chamada 240 s antes de a paga entrar, e a extração do TJSP levava mais de 10 min).
+//
 // As chamadas ao Gemini podem levar minutos: `iniciar` marca o edital como "extraindo" e devolve na hora; a extração
 // segue em segundo plano e grava "extraido" ou "erro_extracao". A tela acompanha pelo status do edital. O resultado
 // só é gravado se as duas chamadas derem certo; refazer a extração substitui os metadados e a árvore inteira.
@@ -138,7 +141,7 @@ function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora =
   // Uma chamada ao Gemini com um dos prompts: a resposta e o registro da chamada (gravado em metadados.extracao).
   async function chamarIa(arquivoDoPrompt, textoDoEdital, responseSchema) {
     const { versao, instrucaoDoSistema, prompt } = carregarPrompt(arquivoDoPrompt, { texto_do_edital: textoDoEdital });
-    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema });
+    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema, somentePaga: true });
     return { texto: resposta.texto, registro: { prompt: versao, modelo: resposta.modelo, chave: resposta.chave, tokens: resposta.tokens } };
   }
 
@@ -152,9 +155,11 @@ function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora =
       });
       const textoDoEdital = textoComMarcasDePagina(paginas);
 
-      const chamadaMetadados = await chamarIa(PROMPT_METADADOS, textoDoEdital, ESQUEMA_RESPOSTA);
+      const [chamadaMetadados, chamadaArvore] = await Promise.all([
+        chamarIa(PROMPT_METADADOS, textoDoEdital, ESQUEMA_RESPOSTA),
+        chamarIa(PROMPT_ARVORE, textoDoEdital, ESQUEMA_ARVORE)
+      ]);
       const metadados = montarMetadados(chamadaMetadados.texto, paginas);
-      const chamadaArvore = await chamarIa(PROMPT_ARVORE, textoDoEdital, ESQUEMA_ARVORE);
       const { itens, normas } = montarArvore(chamadaArvore.texto, paginas);
 
       metadados.extracao = {

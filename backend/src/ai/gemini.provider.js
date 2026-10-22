@@ -89,11 +89,15 @@ async function chamarComRetry({ chave, apiKey, corpo }, contexto, tentativas) {
   }
 }
 
-function chavesEmOrdem(config) {
-  return [
+// `somentePaga`: quem chama dispensa a gratuita (a extração do edital, decisão do orientador em 2026-10-22: sob
+// "alta demanda" a gratuita segurava a chamada a janela inteira antes de a paga entrar). Sem a paga no .env, usa a
+// gratuita mesmo assim.
+function chavesEmOrdem(config, somentePaga = false) {
+  const chaves = [
     config.apiKeyFree && { chave: "gratuita", apiKey: config.apiKeyFree },
     config.apiKey && { chave: "paga", apiKey: config.apiKey }
   ].filter(Boolean);
+  return somentePaga && config.apiKey ? chaves.filter((c) => c.chave === "paga") : chaves;
 }
 
 function passaParaAPaga(erro) {
@@ -104,10 +108,10 @@ function descreverTentativas(tentativas) {
   return tentativas.map((t) => `${t.chave}: ${t.resultado} em ${t.segundos.toFixed(1)} s`).join("; ");
 }
 
-async function chamarComChaves(corpo, deps) {
+async function chamarComChaves(corpo, deps, somentePaga) {
   const config = deps.gemini || env.gemini;
   const contexto = { config, fetchFn: deps.fetch || fetch, esperar: deps.esperar || esperarPadrao, agora: deps.agora || Date.now };
-  const chaves = chavesEmOrdem(config);
+  const chaves = chavesEmOrdem(config, somentePaga);
   if (chaves.length === 0) {
     throw new ErroDoGemini("GEMINI_API_KEY_FREE e GEMINI_API_KEY não estão no .env: a extração com IA está desligada.");
   }
@@ -153,13 +157,13 @@ async function chamarComChaves(corpo, deps) {
 
 // Resposta em JSON no formato de `responseSchema` (subconjunto OpenAPI da API do Gemini). Devolve o texto como veio:
 // quem lê e valida o JSON é quem chamou.
-async function gerarJson({ systemInstruction, prompt, responseSchema }, deps = {}) {
+async function gerarJson({ systemInstruction, prompt, responseSchema, somentePaga = false }, deps = {}) {
   const corpo = JSON.stringify({
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0 }
   });
-  return chamarComChaves(corpo, deps);
+  return chamarComChaves(corpo, deps, somentePaga);
 }
 
 module.exports = { gerarJson, ErroDoGemini };

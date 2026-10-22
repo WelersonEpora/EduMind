@@ -82,6 +82,13 @@ test("sem nenhuma chave no .env, avisa que a extração está desligada", async 
   await assert.rejects(gerarJson(PEDIDO, deps(async () => respostaOk("{}"), config)), /não estão no \.env/);
 });
 
+test("somentePaga dispensa a gratuita; sem a paga no .env, usa a gratuita", async () => {
+  const { fetch, chaves } = fetchFalso(respostaOk("{}"), respostaOk("{}"));
+  assert.equal((await gerarJson({ ...PEDIDO, somentePaga: true }, deps(fetch))).chave, "paga");
+  assert.equal((await gerarJson({ ...PEDIDO, somentePaga: true }, deps(fetch, { ...CONFIG, apiKey: "" }))).chave, "gratuita");
+  assert.deepEqual(chaves, ["chave-paga", "chave-gratuita"]);
+});
+
 test("resposta vazia é erro", async () => {
   const { fetch } = fetchFalso(respostaOk(""));
   await assert.rejects(gerarJson(PEDIDO, deps(fetch, { ...CONFIG, apiKey: "" })), /resposta vazia/);
