@@ -55,7 +55,8 @@ function camposIniciais() {
 }
 
 const novaProva = ref(camposIniciais())
-// "Onde procurar" começa recolhido.
+// "Enviar prova" e "Onde procurar" começam recolhidos.
+const enviarProvaAberto = ref(false)
 const ondeProcurarAberto = ref(false)
 const seletor = ref(null)
 const enviando = ref(false)
@@ -127,8 +128,19 @@ const resumo = computed(() => {
 
     <div class="grade">
       <section class="painel">
-        <div class="painel__cabecalho"><h2>Enviar prova</h2></div>
-        <div class="painel__corpo">
+        <button
+          type="button"
+          class="painel__cabecalho recolher"
+          :aria-expanded="enviarProvaAberto"
+          @click="enviarProvaAberto = !enviarProvaAberto"
+        >
+          <h2><i class="pi pi-upload recolher__icone" /> Enviar prova</h2>
+          <span class="recolher__dica">
+            PDF da prova
+            <i class="pi" :class="enviarProvaAberto ? 'pi-chevron-up' : 'pi-chevron-down'" />
+          </span>
+        </button>
+        <div v-show="enviarProvaAberto" class="painel__corpo">
           <form class="formulario" @submit.prevent="seletor.click()">
             <label><span class="rotulo">Banca</span><InputText v-model="novaProva.banca" size="small" placeholder="VUNESP" /></label>
             <label><span class="rotulo">Ano</span><InputText v-model="novaProva.ano" size="small" placeholder="2021" inputmode="numeric" /></label>
