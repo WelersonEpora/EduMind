@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
@@ -14,7 +14,8 @@ import {
   enviarGabarito,
   enviarProva,
   escolherProva,
-  excluirProva
+  excluirProva,
+  lerQuestoes
 } from '../services/provas.service'
 import { nomeDoEdital } from '../composables/useEditais'
 
@@ -101,6 +102,42 @@ const aoSalvar = (prova, campos) => executar(prova, () => atualizarProva(prova.i
 const aoEnviarGabarito = (prova, arquivo, campos) =>
   executar(prova, () => enviarGabarito(prova.id, arquivo, campos), 'Não foi possível enviar o gabarito', 'Gabarito recebido')
 const aoExcluir = (prova) => executar(prova, () => excluirProva(prova.id), 'Não foi possível excluir', 'Prova excluída da biblioteca')
+
+// Leitura das questões com IA (etapa 3b). Com questões já revisadas, confirma antes de ler de novo.
+const aoLer = (prova) =>
+  executar(
+    prova,
+    async () => {
+      try {
+        await lerQuestoes(prova.id)
+      } catch (e) {
+        const dados = e.response?.data?.error
+        if (dados?.codigo !== 'revisao_sera_perdida') throw e
+        if (!window.confirm(`${dados.message}
+
+Ler de novo mesmo assim?`)) return
+        await lerQuestoes(prova.id, { confirmarPerdaDaRevisao: true })
+      }
+    },
+    'Não foi possível iniciar a leitura'
+  )
+
+// Enquanto alguma prova está sendo lida, recarrega a área a cada 5 s.
+let temporizador = null
+const lendo = computed(() => [...(area.value?.escolhidas || []), ...(area.value?.outras || [])].some((p) => p.leitura_status === 'lendo'))
+watch(lendo, (agora) => {
+  clearInterval(temporizador)
+  temporizador = null
+  if (!agora) return
+  temporizador = setInterval(async () => {
+    try {
+      area.value = await buscarProvasDoEdital(edital.value.id)
+    } catch {
+      // A próxima volta tenta de novo.
+    }
+  }, 5000)
+})
+onBeforeUnmount(() => clearInterval(temporizador))
 
 const resumo = computed(() => {
   const escolhidas = area.value?.escolhidas || []
@@ -215,6 +252,7 @@ const resumo = computed(() => {
         @salvar="aoSalvar(prova, $event)"
         @enviar-gabarito="(arquivo, campos) => aoEnviarGabarito(prova, arquivo, campos)"
         @excluir="aoExcluir(prova)"
+        @ler="aoLer(prova)"
       />
     </div>
 
@@ -231,6 +269,7 @@ const resumo = computed(() => {
           @salvar="aoSalvar(prova, $event)"
           @enviar-gabarito="(arquivo, campos) => aoEnviarGabarito(prova, arquivo, campos)"
           @excluir="aoExcluir(prova)"
+          @ler="aoLer(prova)"
         />
       </div>
     </template>

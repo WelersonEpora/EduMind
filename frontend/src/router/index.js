@@ -7,6 +7,7 @@ import BibliotecaView from '../views/BibliotecaView.vue'
 import NormaView from '../views/NormaView.vue'
 import CoberturaView from '../views/CoberturaView.vue'
 import ProvasView from '../views/ProvasView.vue'
+import QuestoesView from '../views/QuestoesView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -19,6 +20,7 @@ const router = createRouter({
     { path: '/editais/:id/fontes', name: 'fontes', component: FontesView, meta: { larguraTotal: true } },
     { path: '/editais/:id/cobertura', name: 'cobertura', component: CoberturaView, meta: { larguraTotal: true } },
     { path: '/editais/:id/provas', name: 'provas', component: ProvasView, meta: { larguraTotal: true } },
+    { path: '/provas/:provaId/questoes', name: 'questoes', component: QuestoesView, meta: { larguraTotal: true } },
     { path: '/normas', name: 'normas', component: BibliotecaView },
     { path: '/normas/:id', name: 'norma', component: NormaView }
   ]

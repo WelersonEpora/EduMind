@@ -54,3 +54,20 @@ export async function excluirProva(provaId) {
 export function urlDoArquivoDaProva(provaId, tipo) {
   return `/api/v1/provas/${provaId}/arquivos/${tipo}`
 }
+
+// Leitura das questões (etapa 3b): em segundo plano; a tela acompanha pelo leitura_status da prova.
+// Com questões já revisadas, o backend responde 409 (codigo "revisao_sera_perdida") e a tela pede confirmação.
+export async function lerQuestoes(provaId, { confirmarPerdaDaRevisao = false } = {}) {
+  const resposta = await http.post(`/api/v1/provas/${provaId}/leitura`, { confirmarPerdaDaRevisao })
+  return resposta.data.data
+}
+
+export async function buscarQuestoes(provaId) {
+  const resposta = await http.get(`/api/v1/provas/${provaId}/questoes`)
+  return resposta.data.data
+}
+
+export async function revisarQuestao(provaId, questaoId, alteracoes) {
+  const resposta = await http.patch(`/api/v1/provas/${provaId}/questoes/${questaoId}`, alteracoes)
+  return resposta.data.data
+}

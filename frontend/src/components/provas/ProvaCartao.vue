@@ -13,7 +13,7 @@ const props = defineProps({
   escolhida: { type: Boolean, default: false },
   ocupado: { type: Boolean, default: false }
 })
-const emit = defineEmits(['escolher', 'desfazer', 'salvar', 'enviar-gabarito', 'excluir'])
+const emit = defineEmits(['escolher', 'desfazer', 'salvar', 'enviar-gabarito', 'excluir', 'ler'])
 
 const SITUACOES_DO_GABARITO = [
   { valor: 'oficial_definitivo', rotulo: 'Oficial definitivo', severidade: 'success' },
@@ -128,6 +128,35 @@ function excluir() {
         </div>
       </section>
 
+      <section>
+        <span class="rotulo">Questões</span>
+        <p v-if="prova.leitura_status === 'lendo'" class="linha lendo">
+          <i class="pi pi-spin pi-spinner" /> A IA está lendo a prova e o gabarito. Leva alguns minutos.
+        </p>
+        <template v-else-if="prova.leitura_status === 'lida'">
+          <p class="linha">
+            <Tag :value="`${prova.questoes.valida} válidas`" severity="success" />
+            <Tag v-if="prova.questoes.a_revisar" :value="`${prova.questoes.a_revisar} a revisar`" severity="warn" />
+            <Tag v-if="prova.questoes.descartada" :value="`${prova.questoes.descartada} descartadas`" severity="secondary" />
+            <router-link :to="{ name: 'questoes', params: { provaId: prova.id } }">ver questões</router-link>
+          </p>
+          <p v-for="aviso in prova.leitura?.avisos || []" :key="aviso" class="alerta"><i class="pi pi-exclamation-triangle" /> {{ aviso }}</p>
+        </template>
+        <p v-else-if="prova.leitura_status === 'erro'" class="alerta"><i class="pi pi-times-circle" /> {{ prova.leitura_erro }}</p>
+        <p v-else class="linha instrucao">Ainda não lidas.</p>
+        <div v-if="prova.leitura_status !== 'lendo'" class="linha">
+          <Button
+            :label="prova.leitura_status === 'lida' ? 'Ler de novo' : 'Ler questões com IA'"
+            icon="pi pi-sparkles"
+            size="small"
+            :outlined="prova.leitura_status === 'lida'"
+            :disabled="ocupado || !prova.prova || semTexto"
+            @click="emit('ler')"
+          />
+          <span v-if="!prova.gabarito" class="instrucao">Sem gabarito, as questões ficam sem resposta.</span>
+        </div>
+      </section>
+
       <div class="acoes">
         <Button v-if="escolhida" label="Tirar deste edital" size="small" severity="secondary" outlined :disabled="ocupado" @click="emit('desfazer')" />
         <Button v-else label="Usar neste edital" icon="pi pi-plus" size="small" :disabled="ocupado" @click="emit('escolher')" />
@@ -216,6 +245,14 @@ function excluir() {
   grid-column: 1 / -1;
   display: flex;
   gap: 0.5rem;
+}
+.instrucao {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+.lendo {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
 }
 .acoes {
   display: flex;
