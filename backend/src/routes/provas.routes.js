@@ -1,0 +1,55 @@
+"use strict";
+
+const express = require("express");
+const multer = require("multer");
+const { AppError } = require("../shared/errors");
+
+const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
+
+// multer entrega o nome em latin1; o navegador manda UTF-8.
+const nomeDoArquivo = (file) => Buffer.from(file.originalname, "latin1").toString("utf8");
+
+// Biblioteca de provas anteriores (etapa 3a): upload da prova e do gabarito, dados do concurso e os arquivos.
+function criarRotasDeProvas(provasService) {
+  const router = express.Router();
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
+
+  router.get("/", async (req, res) => {
+    res.json({ data: await provasService.biblioteca() });
+  });
+
+  // Campos do formulário: banca, orgao, cargo, ano, origem_url, observacoes e, vindo da tela de um edital, edital_id.
+  router.post("/", upload.single("arquivo"), async (req, res) => {
+    if (!req.file) throw new AppError(400, "Envie o PDF da prova no campo 'arquivo'.");
+    const { edital_id: editalId, ...campos } = req.body || {};
+    const { prova, jaExistia } = await provasService.enviarProva({
+      buffer: req.file.buffer,
+      nomeArquivo: nomeDoArquivo(req.file),
+      campos,
+      editalId: editalId || null
+    });
+    res.status(jaExistia ? 200 : 201).json({ data: prova, jaExistia });
+  });
+
+  // Campos: gabarito_situacao (obrigatório) e origem_url.
+  router.post("/:id/gabarito", upload.single("arquivo"), async (req, res) => {
+    if (!req.file) throw new AppError(400, "Envie o PDF do gabarito no campo 'arquivo'.");
+    res.json({ data: await provasService.enviarGabarito(req.params.id, { buffer: req.file.buffer, nomeArquivo: nomeDoArquivo(req.file), campos: req.body || {} }) });
+  });
+
+  router.patch("/:id", async (req, res) => {
+    res.json({ data: await provasService.atualizar(req.params.id, req.body || {}) });
+  });
+
+  router.delete("/:id", async (req, res) => {
+    res.json({ data: await provasService.excluir(req.params.id) });
+  });
+
+  router.get("/:id/arquivos/:tipo", async (req, res) => {
+    res.type("application/pdf").sendFile(await provasService.arquivo(req.params.id, req.params.tipo));
+  });
+
+  return router;
+}
+
+module.exports = { criarRotasDeProvas };

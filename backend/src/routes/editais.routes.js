@@ -6,7 +6,7 @@ const { AppError } = require("../shared/errors");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
-function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService) {
+function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService, provasService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -65,6 +65,19 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
   // Cobertura (etapa 2c): cada artigo pedido cruzado com o texto da norma.
   router.get("/:id/cobertura", async (req, res) => {
     res.json({ data: await coberturaService.cobertura(req.params.id) });
+  });
+
+  // Provas anteriores do edital (etapa 3a): buscas sugeridas, provas escolhidas e as demais da biblioteca.
+  router.get("/:id/provas", async (req, res) => {
+    res.json({ data: await provasService.doEdital(req.params.id) });
+  });
+
+  router.put("/:id/provas/:provaId", async (req, res) => {
+    res.json({ data: await provasService.escolher(req.params.id, req.params.provaId) });
+  });
+
+  router.delete("/:id/provas/:provaId", async (req, res) => {
+    res.json({ data: await provasService.desfazerEscolha(req.params.id, req.params.provaId) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {

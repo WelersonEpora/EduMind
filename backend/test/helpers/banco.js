@@ -9,7 +9,7 @@ const { conectar } = require("../../src/db");
 async function abrirBancoDeTeste(t) {
   const sequelize = conectar(env.bancoDeTeste);
   t.after(() => sequelize.close());
-  await sequelize.query("TRUNCATE edital, norma, fetch_log CASCADE");
+  await sequelize.query("TRUNCATE edital, norma, prova, fetch_log CASCADE");
   return sequelize;
 }
 

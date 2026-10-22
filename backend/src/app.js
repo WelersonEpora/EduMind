@@ -10,7 +10,9 @@ const { criarExtracaoService } = require("./services/extracao.service");
 const { criarRevisaoService } = require("./services/revisao.service");
 const { criarFontesService } = require("./services/fontes.service");
 const { criarCoberturaService } = require("./services/cobertura.service");
+const { criarProvasService } = require("./services/provas.service");
 const { criarRotasDeNormas } = require("./routes/normas.routes");
+const { criarRotasDeProvas } = require("./routes/provas.routes");
 const { criarRotasDeEditais } = require("./routes/editais.routes");
 
 // Recebe a conexão, a pasta de dados e o serviço de extração de fora, para os testes montarem o app com o banco de
@@ -27,14 +29,16 @@ function criarApp({
   app.use(express.json());
 
   const editalService = criarEditalService({ sequelize, dirUploads: path.join(dataDir, "uploads", "editais") });
+  const provasService = criarProvasService({ sequelize, dirProvas: path.join(dataDir, "provas") });
 
   app.get("/health", (req, res) => res.json({ status: "ok" }));
   app.use(
     "/api/v1/editais",
-    criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService, criarCoberturaService({ sequelize }))
+    criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService, criarCoberturaService({ sequelize }), provasService)
   );
 
   app.use("/api/v1/normas", criarRotasDeNormas(fontesService));
+  app.use("/api/v1/provas", criarRotasDeProvas(provasService));
 
   app.use(naoEncontrado);
   app.use(tratarErro);
