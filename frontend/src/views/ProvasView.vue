@@ -154,7 +154,7 @@ const resumo = computed(() => {
           :aria-expanded="ondeProcurarAberto"
           @click="ondeProcurarAberto = !ondeProcurarAberto"
         >
-          <h2>Onde procurar</h2>
+          <h2><i class="pi pi-search recolher__icone" /> Onde procurar</h2>
           <span class="recolher__dica">
             {{ area.buscas.length }} {{ area.buscas.length === 1 ? 'busca sugerida' : 'buscas sugeridas' }}
             <i class="pi" :class="ondeProcurarAberto ? 'pi-chevron-up' : 'pi-chevron-down'" />
@@ -252,6 +252,11 @@ const resumo = computed(() => {
 }
 .recolher[aria-expanded='false'] {
   border-bottom: 0;
+}
+.recolher__icone {
+  margin-right: 0.35rem;
+  font-size: 0.9em;
+  color: var(--muted-foreground);
 }
 .recolher__dica {
   display: flex;
