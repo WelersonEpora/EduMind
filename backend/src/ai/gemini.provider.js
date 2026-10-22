@@ -166,4 +166,16 @@ async function gerarJson({ systemInstruction, prompt, responseSchema, somentePag
   return chamarComChaves(corpo, deps, somentePaga);
 }
 
-module.exports = { gerarJson, ErroDoGemini };
+// Com a busca na web (Google Search grounding) e resposta em texto: no EduMind, só para descobrir a URL oficial de uma
+// norma, nunca o texto dela (regra do projeto). Com a busca, nada de JSON junto: no AgroMind e no FinMind, o JSON com
+// a busca desligava o grounding sem erro. Quem chama lê o texto e valida a URL.
+async function pesquisarNaWeb({ systemInstruction, prompt, somentePaga = false }, deps = {}) {
+  const corpo = JSON.stringify({
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }]
+  });
+  return chamarComChaves(corpo, deps, somentePaga);
+}
+
+module.exports = { gerarJson, pesquisarNaWeb, ErroDoGemini };

@@ -6,7 +6,7 @@ const { AppError } = require("../shared/errors");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
-function criarRotasDeEditais(editalService, extracaoService, revisaoService) {
+function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -47,6 +47,19 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService) {
 
   router.post("/:id/itens/:itemId/aprovar-verificados", async (req, res) => {
     res.json({ data: await revisaoService.aprovarVerificados(req.params.id, req.params.itemId) });
+  });
+
+  // Fontes (etapa 2a-1): as normas citadas nos itens aprovados e a confirmação da identidade de cada uma.
+  router.get("/:id/fontes", async (req, res) => {
+    res.json({ data: await fontesService.listar(req.params.id) });
+  });
+
+  router.post("/:id/fontes/confirmar", async (req, res) => {
+    res.json({ data: await fontesService.confirmar(req.params.id, req.body || {}) });
+  });
+
+  router.post("/:id/fontes/desligar", async (req, res) => {
+    res.json({ data: await fontesService.desligar(req.params.id, req.body || {}) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {

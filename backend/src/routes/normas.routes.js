@@ -1,0 +1,43 @@
+"use strict";
+
+const express = require("express");
+const multer = require("multer");
+const { AppError } = require("../shared/errors");
+
+const TAMANHO_MAXIMO_ARQUIVO = 30 * 1024 * 1024;
+
+// Biblioteca de normas (etapa 2a-1): URL oficial e upload manual das versões.
+function criarRotasDeNormas(fontesService) {
+  const router = express.Router();
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_ARQUIVO } });
+
+  router.get("/", async (req, res) => {
+    res.json({ data: await fontesService.biblioteca() });
+  });
+
+  // A busca na web da IA, só para achar a URL oficial. Pode levar dezenas de segundos.
+  router.post("/:id/buscar-url", async (req, res) => {
+    res.json({ data: await fontesService.buscarUrl(req.params.id) });
+  });
+
+  router.patch("/:id", async (req, res) => {
+    res.json({ data: await fontesService.definirUrl(req.params.id, req.body || {}) });
+  });
+
+  router.post("/:id/versoes", upload.single("arquivo"), async (req, res) => {
+    if (!req.file) throw new AppError(400, "Envie o arquivo no campo 'arquivo'.");
+    // multer entrega o nome em latin1; o navegador manda UTF-8.
+    const nomeArquivo = Buffer.from(req.file.originalname, "latin1").toString("utf8");
+    const { norma, jaExistia } = await fontesService.enviarVersao(req.params.id, { buffer: req.file.buffer, nomeArquivo });
+    res.status(jaExistia ? 200 : 201).json({ data: norma, jaExistia });
+  });
+
+  router.get("/:id/versoes/:versaoId/arquivo", async (req, res) => {
+    const { caminho, tipo } = await fontesService.arquivoDaVersao(req.params.id, req.params.versaoId);
+    res.type(tipo).sendFile(caminho);
+  });
+
+  return router;
+}
+
+module.exports = { criarRotasDeNormas };

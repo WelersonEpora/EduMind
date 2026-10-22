@@ -8,11 +8,18 @@ const { naoEncontrado, tratarErro } = require("./shared/middlewares");
 const { criarEditalService } = require("./services/edital.service");
 const { criarExtracaoService } = require("./services/extracao.service");
 const { criarRevisaoService } = require("./services/revisao.service");
+const { criarFontesService } = require("./services/fontes.service");
+const { criarRotasDeNormas } = require("./routes/normas.routes");
 const { criarRotasDeEditais } = require("./routes/editais.routes");
 
 // Recebe a conexão, a pasta de dados e o serviço de extração de fora, para os testes montarem o app com o banco de
 // teste e sem chamar o Gemini.
-function criarApp({ sequelize, dataDir, extracaoService = criarExtracaoService({ sequelize }) }) {
+function criarApp({
+  sequelize,
+  dataDir,
+  extracaoService = criarExtracaoService({ sequelize }),
+  fontesService = criarFontesService({ sequelize, dirNormas: path.join(dataDir, "normas") })
+}) {
   const app = express();
   app.disable("x-powered-by");
   app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === "/health" } }));
@@ -21,7 +28,9 @@ function criarApp({ sequelize, dataDir, extracaoService = criarExtracaoService({
   const editalService = criarEditalService({ sequelize, dirUploads: path.join(dataDir, "uploads", "editais") });
 
   app.get("/health", (req, res) => res.json({ status: "ok" }));
-  app.use("/api/v1/editais", criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize })));
+  app.use("/api/v1/editais", criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService));
+
+  app.use("/api/v1/normas", criarRotasDeNormas(fontesService));
 
   app.use(naoEncontrado);
   app.use(tratarErro);
