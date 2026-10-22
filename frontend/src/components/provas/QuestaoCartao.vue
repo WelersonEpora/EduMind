@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
@@ -11,9 +12,35 @@ import { urlDoArquivoDaProva } from '../../services/provas.service'
 const props = defineProps({
   questao: { type: Object, required: true },
   provaId: { type: String, required: true },
-  ocupado: { type: Boolean, default: false }
+  ocupado: { type: Boolean, default: false },
+  // Normas da biblioteca, para corrigir a classificação: [{ id, nome }].
+  normas: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['revisar'])
+const emit = defineEmits(['revisar', 'classificar'])
+
+const CLASSIFICACAO = {
+  classificada: { rotulo: 'classificada', severidade: 'success' },
+  a_revisar: { rotulo: 'classificação a revisar', severidade: 'warn' },
+  nao_juridica: { rotulo: 'não jurídica', severidade: 'secondary' }
+}
+const PAPEIS = [
+  { valor: 'principal', rotulo: 'principal' },
+  { valor: 'relacionado', rotulo: 'relacionado' }
+]
+
+// Correção das referências (norma, artigo, papel). O código confere de novo ao salvar.
+const corrigindo = ref(false)
+const referencias = ref([])
+function corrigir() {
+  referencias.value = props.questao.referencias.length
+    ? props.questao.referencias.map((r) => ({ norma_id: r.norma_id, artigo: r.artigo, papel: r.papel }))
+    : [{ norma_id: null, artigo: '', papel: 'principal' }]
+  corrigindo.value = true
+}
+function salvarReferencias() {
+  emit('classificar', { referencias: referencias.value.filter((r) => r.norma_id && r.artigo.trim()) })
+  corrigindo.value = false
+}
 
 const STATUS = {
   valida: { rotulo: 'válida', severidade: 'success' },
@@ -123,6 +150,65 @@ function salvar() {
           ver no PDF (p. {{ questao.pagina }})
         </a>
       </div>
+
+      <section v-if="questao.classificacao_status" class="classificacao">
+        <div class="classificacao__cabecalho">
+          <span class="rotulo">Norma e artigos</span>
+          <Tag :value="CLASSIFICACAO[questao.classificacao_status].rotulo" :severity="CLASSIFICACAO[questao.classificacao_status].severidade" />
+        </div>
+        <ul v-if="questao.classificacao_problemas?.length" class="problemas">
+          <li v-for="problema in questao.classificacao_problemas" :key="problema"><i class="pi pi-exclamation-triangle" /> {{ problema }}</li>
+        </ul>
+
+        <template v-if="corrigindo">
+          <div v-for="(item, i) in referencias" :key="i" class="referencia-edicao">
+            <Select v-model="item.norma_id" :options="normas" option-label="nome" option-value="id" placeholder="Norma" filter size="small" />
+            <InputText v-model="item.artigo" placeholder="Artigo (7, 313-A)" size="small" />
+            <Select v-model="item.papel" :options="PAPEIS" option-label="rotulo" option-value="valor" size="small" />
+            <Button icon="pi pi-times" size="small" severity="secondary" text aria-label="Remover" @click="referencias.splice(i, 1)" />
+          </div>
+          <div class="acoes">
+            <Button label="Mais um artigo" icon="pi pi-plus" size="small" severity="secondary" text @click="referencias.push({ norma_id: null, artigo: '', papel: 'relacionado' })" />
+            <Button label="Salvar artigos" size="small" :disabled="ocupado" @click="salvarReferencias" />
+            <Button label="Cancelar" size="small" severity="secondary" text @click="corrigindo = false" />
+          </div>
+        </template>
+        <template v-else>
+          <p v-if="questao.referencias.length" class="referencias">
+            <router-link
+              v-for="r in questao.referencias"
+              :key="`${r.norma_id}-${r.artigo}`"
+              :to="{ name: 'norma', params: { id: r.norma_id }, query: { artigo: r.artigo } }"
+              class="referencia"
+              :class="{ 'referencia--principal': r.papel === 'principal' }"
+              :title="r.papel"
+            >
+              {{ r.norma }} · art. {{ r.artigo }}
+            </router-link>
+          </p>
+          <p v-if="questao.norma_citada" class="instrucao">Fora da biblioteca: {{ questao.norma_citada }}</p>
+          <div class="acoes">
+            <Button
+              v-if="questao.classificacao_status === 'a_revisar'"
+              label="Está certo"
+              icon="pi pi-check"
+              size="small"
+              :disabled="ocupado"
+              @click="emit('classificar', { classificacao_status: 'classificada' })"
+            />
+            <Button label="Corrigir artigos" size="small" severity="secondary" text @click="corrigir" />
+            <Button
+              v-if="questao.classificacao_status !== 'nao_juridica'"
+              label="Não é de Direito"
+              size="small"
+              severity="secondary"
+              text
+              :disabled="ocupado"
+              @click="emit('classificar', { classificacao_status: 'nao_juridica' })"
+            />
+          </div>
+        </template>
+      </section>
     </div>
   </article>
 </template>
@@ -219,6 +305,54 @@ function salvar() {
   display: flex;
   gap: 0.4rem;
   align-items: center;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+.classificacao {
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.classificacao__cabecalho {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rotulo {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+}
+.referencias {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.referencia {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  text-decoration: none;
+}
+.referencia--principal {
+  font-weight: 700;
+  border-color: var(--primary);
+}
+.referencia-edicao {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 8rem auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+.referencia-edicao :deep(input) {
+  width: 100%;
+}
+.instrucao {
+  margin: 0;
   font-size: 0.85rem;
   color: var(--muted-foreground);
 }

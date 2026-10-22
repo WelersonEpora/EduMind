@@ -39,12 +39,16 @@ const FILTROS = [
   { valor: 'todos', rotulo: 'Todos' },
   { valor: 'faltando', rotulo: 'Faltando' },
   { valor: 'revogado', rotulo: 'Revogados' },
-  { valor: 'vigencia', rotulo: 'Alterados depois do edital' }
+  { valor: 'vigencia', rotulo: 'Alterados depois do edital' },
+  { valor: 'questoes', rotulo: 'Com questões' },
+  { valor: 'sem_questoes', rotulo: 'Sem questões' }
 ]
 
 function passaNoFiltro(artigo) {
   if (filtro.value === 'todos') return true
   if (filtro.value === 'vigencia') return Boolean(artigo.vigencia)
+  if (filtro.value === 'questoes') return Boolean(artigo.questoes?.length)
+  if (filtro.value === 'sem_questoes') return artigo.situacao === 'encontrado' && !artigo.questoes?.length
   return artigo.situacao === filtro.value
 }
 
@@ -186,6 +190,10 @@ const janelaVisivel = computed({
           <div class="numero numero--encontrado"><b>{{ resumo.encontrados }}</b><span>encontrados</span></div>
           <div class="numero numero--revogado"><b>{{ resumo.revogados }}</b><span>revogados</span></div>
           <div class="numero numero--faltando"><b>{{ resumo.faltando }}</b><span>faltando</span></div>
+          <div class="numero numero--questoes">
+            <b>{{ resumo.artigos_com_questoes }}</b><span>artigos já cobrados em prova</span>
+            <small>{{ resumo.questoes }} questões das provas escolhidas</small>
+          </div>
           <div class="numero numero--vigencia">
             <b>{{ resumo.alterados_depois }}</b><span>alterados depois do edital</span>
             <small v-if="resumo.talvez_alterados_depois">+ {{ resumo.talvez_alterados_depois }} talvez</small>
@@ -258,6 +266,7 @@ const janelaVisivel = computed({
                             @click="abrir(citacao, artigo)"
                           >
                             {{ artigo.numero }}
+                            <sup v-if="artigo.questoes?.length" class="artigo__questoes">{{ artigo.questoes.length }}</sup>
                           </button>
                           <span v-if="parte.artigos.length === 0" class="pendente">nenhum artigo</span>
                         </div>
@@ -303,6 +312,7 @@ const janelaVisivel = computed({
                       @click="abrir(citacao, artigo)"
                     >
                       {{ artigo.numero }}
+                      <sup v-if="artigo.questoes?.length" class="artigo__questoes">{{ artigo.questoes.length }}</sup>
                     </button>
                   </div>
                 </template>
@@ -361,6 +371,18 @@ const janelaVisivel = computed({
         </details>
       </template>
 
+      <section v-if="aberto.artigo.questoes?.length" class="janela__questoes">
+        <span class="rotulo">Cobrado em</span>
+        <router-link
+          v-for="q in aberto.artigo.questoes"
+          :key="q.questao_id"
+          :to="{ name: 'questoes', params: { provaId: q.prova_id } }"
+        >
+          {{ q.banca }} {{ q.ano }} · questão {{ q.numero }}<template v-if="q.papel === 'relacionado'"> (relacionado)</template>
+        </router-link>
+      </section>
+      <p v-else-if="aberto.artigo.situacao === 'encontrado'" class="pendente">Nenhuma questão das provas escolhidas cobra este artigo.</p>
+
       <router-link
         v-if="aberto.artigo.norma_artigo_id"
         :to="{ name: 'norma', params: { id: aberto.citacao.norma.id }, query: { versao: aberto.citacao.versao.id, artigo: aberto.artigo.numero } }"
@@ -405,6 +427,27 @@ const janelaVisivel = computed({
 }
 .numero--faltando {
   border-left-color: var(--negative);
+}
+.numero--questoes {
+  border-left-color: var(--primary);
+}
+.artigo__questoes {
+  margin-left: 0.15rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.janela__questoes {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+.rotulo {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
 }
 .numero--vigencia {
   border-left-color: var(--warning);

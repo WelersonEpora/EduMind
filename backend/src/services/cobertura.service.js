@@ -237,6 +237,7 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
     await percorrer(null, null);
 
     const comItens = disciplinas.filter((d) => d.itens.length > 0);
+    await anexarQuestoes(editalId, comItens);
     return { edital: { id: edital.id, data_publicacao: dataDoEdital }, resumo: resumir(comItens), disciplinas: comItens };
   }
 
@@ -268,6 +269,31 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
     return cobrirCitacao(atualizada, carregadorDeNormas(edital.data_publicacao), edital.data_publicacao);
   }
 
+  // As questões das provas escolhidas para o edital (etapa 3c) que caem em cada artigo, pela classificação por norma
+  // e artigo. Descartadas e não jurídicas ficam de fora.
+  async function anexarQuestoes(editalId, disciplinas) {
+    const linhas = await sequelize.query(
+      `SELECT qa.norma_id, qa.artigo, qa.papel, q.id AS questao_id, q.numero, p.id AS prova_id, p.ano, p.banca
+         FROM questao_artigo qa
+         JOIN prova_questao q ON q.id = qa.questao_id AND q.status <> 'descartada' AND q.classificacao_status <> 'nao_juridica'
+         JOIN prova p ON p.id = q.prova_id
+         JOIN edital_prova ep ON ep.prova_id = p.id AND ep.edital_id = :editalId
+        ORDER BY p.ano DESC NULLS LAST, q.numero`,
+      { replacements: { editalId }, type: sequelize.QueryTypes.SELECT }
+    );
+    const porArtigo = new Map();
+    for (const l of linhas) {
+      const chave = `${l.norma_id}|${l.artigo}`;
+      if (!porArtigo.has(chave)) porArtigo.set(chave, []);
+      porArtigo.get(chave).push({ questao_id: l.questao_id, prova_id: l.prova_id, numero: l.numero, ano: l.ano, banca: l.banca, papel: l.papel });
+    }
+    for (const citacao of disciplinas.flatMap((d) => d.itens.flatMap((i) => i.citacoes))) {
+      if (!citacao.norma) continue;
+      const artigos = [...citacao.artigos, ...(citacao.estrutura?.partes || []).flatMap((p) => p.artigos)];
+      for (const artigo of artigos) artigo.questoes = porArtigo.get(`${citacao.norma.id}|${artigo.numero}`) || [];
+    }
+  }
+
   return { cobertura, conferirEstrutura };
 }
 
@@ -285,7 +311,10 @@ function resumir(disciplinas) {
     revogados: contar(artigos, "situacao", "revogado"),
     faltando: contar(artigos, "situacao", "faltando"),
     alterados_depois: contar(artigos, "vigencia", "depois"),
-    talvez_alterados_depois: contar(artigos, "vigencia", "talvez")
+    talvez_alterados_depois: contar(artigos, "vigencia", "talvez"),
+    // Artigos pedidos que já caíram em alguma questão das provas escolhidas, e as questões distintas.
+    artigos_com_questoes: artigos.filter((a) => a.questoes?.length).length,
+    questoes: new Set(artigos.flatMap((a) => (a.questoes || []).map((q) => q.questao_id))).size
   };
 }
 

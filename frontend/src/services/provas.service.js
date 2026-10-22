@@ -71,3 +71,15 @@ export async function revisarQuestao(provaId, questaoId, alteracoes) {
   const resposta = await http.patch(`/api/v1/provas/${provaId}/questoes/${questaoId}`, alteracoes)
   return resposta.data.data
 }
+
+// Classificação das questões por norma e artigo (etapa 3c): em segundo plano, como a leitura.
+export async function classificarQuestoes(provaId) {
+  const resposta = await http.post(`/api/v1/provas/${provaId}/classificacao`)
+  return resposta.data.data
+}
+
+// alteracoes: { referencias: [{ norma_id, artigo, papel }] } e/ou { classificacao_status }.
+export async function revisarClassificacao(provaId, questaoId, alteracoes) {
+  const resposta = await http.patch(`/api/v1/provas/${provaId}/questoes/${questaoId}/classificacao`, alteracoes)
+  return resposta.data.data
+}

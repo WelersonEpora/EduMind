@@ -5,7 +5,8 @@ import { useToast } from 'primevue/usetoast'
 import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
 import QuestaoCartao from '../components/provas/QuestaoCartao.vue'
-import { buscarQuestoes, revisarQuestao } from '../services/provas.service'
+import { buscarQuestoes, revisarClassificacao, revisarQuestao } from '../services/provas.service'
+import { listarNormas } from '../services/editais.service'
 
 // Questões lidas de uma prova (etapa 3b). As conferidas valem direto; a tela abre nas que precisam de revisão.
 const route = useRoute()
@@ -16,12 +17,15 @@ const dados = ref(null)
 const erro = ref(null)
 const filtro = ref('a_revisar')
 const ocupada = ref(null)
+// Normas da biblioteca, para corrigir a classificação.
+const normas = ref([])
 
 async function carregar(id) {
   dados.value = null
   erro.value = null
   try {
     dados.value = await buscarQuestoes(id)
+    normas.value = (await listarNormas()).map((n) => ({ id: n.id, nome: n.nome }))
     if (!dados.value.questoes.some((q) => q.status === 'a_revisar')) filtro.value = 'todas'
   } catch (e) {
     erro.value = e.message
@@ -33,15 +37,28 @@ watch(() => route.params.provaId, carregar, { immediate: true })
 const contagem = computed(() => {
   const questoes = dados.value?.questoes || []
   const conta = (status) => questoes.filter((q) => q.status === status).length
-  return { todas: questoes.length, a_revisar: conta('a_revisar'), valida: conta('valida'), descartada: conta('descartada') }
+  return {
+    todas: questoes.length,
+    a_revisar: conta('a_revisar'),
+    valida: conta('valida'),
+    descartada: conta('descartada'),
+    classificacao: questoes.filter((q) => q.classificacao_status === 'a_revisar' && q.status !== 'descartada').length
+  }
 })
 const FILTROS = computed(() => [
   { valor: 'a_revisar', rotulo: `A revisar (${contagem.value.a_revisar})` },
   { valor: 'valida', rotulo: `Válidas (${contagem.value.valida})` },
   { valor: 'descartada', rotulo: `Descartadas (${contagem.value.descartada})` },
-  { valor: 'todas', rotulo: `Todas (${contagem.value.todas})` }
+  { valor: 'todas', rotulo: `Todas (${contagem.value.todas})` },
+  { valor: 'classificacao', rotulo: `Classificação a revisar (${contagem.value.classificacao})` }
 ])
-const visiveis = computed(() => (dados.value?.questoes || []).filter((q) => filtro.value === 'todas' || q.status === filtro.value))
+const visiveis = computed(() =>
+  (dados.value?.questoes || []).filter((q) => {
+    if (filtro.value === 'todas') return true
+    if (filtro.value === 'classificacao') return q.classificacao_status === 'a_revisar' && q.status !== 'descartada'
+    return q.status === filtro.value
+  })
+)
 
 const titulo = computed(() => {
   const p = dados.value?.prova
@@ -49,12 +66,13 @@ const titulo = computed(() => {
   return [p.banca, p.orgao, p.cargo, p.ano].filter(Boolean).join(' · ') || 'Prova'
 })
 
-async function aoRevisar(questao, alteracoes) {
+async function aoRevisar(questao, alteracoes, revisar = revisarQuestao) {
   ocupada.value = questao.id
   try {
-    const atualizada = await revisarQuestao(dados.value.prova.id, questao.id, alteracoes)
+    const atualizada = await revisar(dados.value.prova.id, questao.id, alteracoes)
     const i = dados.value.questoes.findIndex((q) => q.id === questao.id)
-    dados.value.questoes[i] = atualizada
+    // A revisão do texto não devolve as referências: ficam as que já estavam.
+    dados.value.questoes[i] = { referencias: questao.referencias, ...atualizada }
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Não foi possível salvar', detail: e.message, life: 8000 })
   } finally {
@@ -96,7 +114,9 @@ async function aoRevisar(questao, alteracoes) {
           :questao="questao"
           :prova-id="dados.prova.id"
           :ocupado="ocupada === questao.id"
+          :normas="normas"
           @revisar="aoRevisar(questao, $event)"
+          @classificar="aoRevisar(questao, $event, revisarClassificacao)"
         />
       </div>
     </template>

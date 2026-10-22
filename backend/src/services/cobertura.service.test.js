@@ -148,7 +148,9 @@ test("cobertura: encontrado, revogado, faltando, letra no intervalo, vigência e
     revogados: 1,
     faltando: 1,
     alterados_depois: 1,
-    talvez_alterados_depois: 0
+    talvez_alterados_depois: 0,
+    artigos_com_questoes: 0,
+    questoes: 0
   });
 
   // Norma inteira com texto: todos os artigos da versão entram.

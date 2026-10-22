@@ -15,6 +15,7 @@ import {
   enviarProva,
   escolherProva,
   excluirProva,
+  classificarQuestoes,
   lerQuestoes
 } from '../services/provas.service'
 import { nomeDoEdital } from '../composables/useEditais'
@@ -122,9 +123,11 @@ Ler de novo mesmo assim?`)) return
     'Não foi possível iniciar a leitura'
   )
 
-// Enquanto alguma prova está sendo lida, recarrega a área a cada 5 s.
+const aoClassificar = (prova) => executar(prova, () => classificarQuestoes(prova.id), 'Não foi possível iniciar a classificação')
+
+// Enquanto alguma prova está sendo lida ou classificada, recarrega a área a cada 5 s.
 let temporizador = null
-const lendo = computed(() => [...(area.value?.escolhidas || []), ...(area.value?.outras || [])].some((p) => p.leitura_status === 'lendo'))
+const lendo = computed(() => [...(area.value?.escolhidas || []), ...(area.value?.outras || [])].some((p) => p.leitura_status === 'lendo' || p.classificacao_status === 'classificando'))
 watch(lendo, (agora) => {
   clearInterval(temporizador)
   temporizador = null
@@ -253,6 +256,7 @@ const resumo = computed(() => {
         @enviar-gabarito="(arquivo, campos) => aoEnviarGabarito(prova, arquivo, campos)"
         @excluir="aoExcluir(prova)"
         @ler="aoLer(prova)"
+          @classificar="aoClassificar(prova)"
       />
     </div>
 
@@ -270,6 +274,7 @@ const resumo = computed(() => {
           @enviar-gabarito="(arquivo, campos) => aoEnviarGabarito(prova, arquivo, campos)"
           @excluir="aoExcluir(prova)"
           @ler="aoLer(prova)"
+          @classificar="aoClassificar(prova)"
         />
       </div>
     </template>

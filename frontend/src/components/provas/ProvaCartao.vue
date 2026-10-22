@@ -13,7 +13,7 @@ const props = defineProps({
   escolhida: { type: Boolean, default: false },
   ocupado: { type: Boolean, default: false }
 })
-const emit = defineEmits(['escolher', 'desfazer', 'salvar', 'enviar-gabarito', 'excluir', 'ler'])
+const emit = defineEmits(['escolher', 'desfazer', 'salvar', 'enviar-gabarito', 'excluir', 'ler', 'classificar'])
 
 const SITUACOES_DO_GABARITO = [
   { valor: 'oficial_definitivo', rotulo: 'Oficial definitivo', severidade: 'success' },
@@ -141,6 +141,31 @@ function excluir() {
             <router-link :to="{ name: 'questoes', params: { provaId: prova.id } }">ver questões</router-link>
           </p>
           <p v-for="aviso in prova.leitura?.avisos || []" :key="aviso" class="alerta"><i class="pi pi-exclamation-triangle" /> {{ aviso }}</p>
+
+          <span class="rotulo">Classificação por artigo</span>
+          <p v-if="prova.classificacao_status === 'classificando'" class="linha lendo">
+            <i class="pi pi-spin pi-spinner" /> A IA está indicando a norma e os artigos de cada questão.
+          </p>
+          <template v-else>
+            <p v-if="prova.classificacao_status === 'classificada'" class="linha">
+              <Tag :value="`${prova.classificadas.classificada} classificadas`" severity="success" />
+              <Tag v-if="prova.classificadas.a_revisar" :value="`${prova.classificadas.a_revisar} a revisar`" severity="warn" />
+              <Tag :value="`${prova.classificadas.nao_juridica} não jurídicas`" severity="secondary" />
+            </p>
+            <p v-else-if="prova.classificacao_status === 'erro'" class="alerta"><i class="pi pi-times-circle" /> {{ prova.classificacao_erro }}</p>
+            <p v-else class="linha instrucao">Ainda não classificadas. Envie antes, nas Fontes, as normas que a prova cobra.</p>
+            <div class="linha">
+              <Button
+                :label="prova.classificacao_status === 'classificada' ? 'Classificar de novo' : 'Classificar por artigo'"
+                icon="pi pi-sitemap"
+                size="small"
+                :outlined="prova.classificacao_status === 'classificada'"
+                :disabled="ocupado"
+                @click="emit('classificar')"
+              />
+              <span v-if="prova.classificacao_status === 'classificada'" class="instrucao">As que você corrigiu são mantidas.</span>
+            </div>
+          </template>
         </template>
         <p v-else-if="prova.leitura_status === 'erro'" class="alerta"><i class="pi pi-times-circle" /> {{ prova.leitura_erro }}</p>
         <p v-else class="linha instrucao">Ainda não lidas.</p>
