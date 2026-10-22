@@ -189,6 +189,10 @@ function confirmar() {
 </template>
 
 <style scoped>
+/* Item da grade das Fontes: sem isso, um conteúdo largo estica o card além da coluna. */
+.fonte {
+  min-width: 0;
+}
 .corpo {
   display: grid;
   gap: 0.9rem;
@@ -199,6 +203,8 @@ function confirmar() {
   display: grid;
   gap: 0.2rem;
   font-size: 0.9rem;
+  /* URLs longas do edital ("Disponível em: <https://...>") quebram em qualquer ponto em vez de alargar o card. */
+  overflow-wrap: anywhere;
 }
 .citacao__artigos {
   color: var(--muted-foreground);
