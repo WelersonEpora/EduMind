@@ -168,3 +168,63 @@ test("cobertura de edital inexistente é 404", async (t) => {
   const sequelize = await abrirBancoDeTeste(t);
   await assert.rejects(criarCoberturaService({ sequelize }).cobertura("nao-e-uuid"), { status: 404 });
 });
+
+test("estrutura: o código acha os artigos; só entram depois da conferência, que cai se o trecho mudar", async (t) => {
+  const { sequelize, edital, fontes, service } = await montar(t);
+  const cp = await confirmar(fontes, edital, "br:decreto-lei:2848:1940", {
+    jurisdicao: "BR",
+    tipo: "Decreto-Lei",
+    numero: "2.848",
+    ano: "1940",
+    nome: "Código Penal"
+  });
+  const html = `<html><head><meta charset="utf-8"></head><body>
+<p>TÍTULO I</p><p>Art. 1º Primeiro.</p>
+<p>TÍTULO II</p><p>CAPÍTULO I</p><p>Art. 2º Segundo.</p><p>Art. 3º Terceiro.</p>
+<p>CAPÍTULO II</p><p>Art. 4º (Revogado pela Lei nº 1, de 2.1.2000)</p>
+<p>CAPÍTULO III</p><p>Art. 5º Quinto.</p>
+</body></html>`;
+  await fontes.enviarVersao(cp.id, { buffer: Buffer.from(html), nomeArquivo: "cp.html" });
+  const citacao = await sequelize.models.ItemNorma.findOne({ where: { norma_id: cp.id } });
+  const revisao = criarRevisaoService({ sequelize });
+  await revisao.revisarNorma(edital.id, citacao.id, { artigos_texto: "Título II - Capítulos I e II; Capítulo IV; e também o artigo 1" });
+
+  const citacaoDaCobertura = async () => (await service.cobertura(edital.id)).disciplinas[0].itens[0].citacoes[0];
+  let coberta = await citacaoDaCobertura();
+  assert.equal(coberta.abrangencia, "estrutura");
+  assert.deepEqual(
+    coberta.estrutura.partes.map((p) => [p.descricao, p.artigos.map((a) => `${a.numero}:${a.situacao}`)]),
+    [
+      ["Título II › Capítulos I e II", ["2:encontrado", "3:encontrado", "4:revogado"]],
+      ["Título II › Capítulo IV", []]
+    ]
+  );
+  assert.deepEqual(coberta.estrutura.avisos, ["Título II › Capítulo IV: não achado no texto da norma."]);
+  // Antes da conferência, só o artigo citado pelo número conta.
+  assert.deepEqual([coberta.estrutura.conferida, coberta.artigos.map((a) => a.numero)], [false, ["1"]]);
+  assert.equal((await service.cobertura(edital.id)).resumo.estrutura_pendente, 1);
+
+  coberta = await service.conferirEstrutura(edital.id, citacao.id, { conferida: true });
+  assert.equal(coberta.estrutura.conferida, true);
+  assert.deepEqual(coberta.artigos.map((a) => [a.numero, a.origem]), [
+    ["1", "explicito"],
+    ["2", "estrutura"],
+    ["3", "estrutura"],
+    ["4", "estrutura"]
+  ]);
+  assert.equal((await service.cobertura(edital.id)).resumo.estrutura_pendente, 0);
+
+  // Corrigir o trecho na revisão derruba a conferência.
+  await revisao.revisarNorma(edital.id, citacao.id, { artigos_texto: "Título II - Capítulo III" });
+  coberta = await citacaoDaCobertura();
+  assert.deepEqual([coberta.estrutura.conferida, coberta.estrutura.mudou, coberta.artigos.length], [false, true, 0]);
+
+  // Desfazer; validações.
+  coberta = await service.conferirEstrutura(edital.id, citacao.id, { conferida: false });
+  assert.deepEqual([coberta.estrutura.conferida, coberta.estrutura.mudou], [false, false]);
+  await assert.rejects(service.conferirEstrutura(edital.id, citacao.id, {}), { status: 400 });
+  await revisao.revisarNorma(edital.id, citacao.id, { artigos_texto: "Título IX" });
+  await assert.rejects(service.conferirEstrutura(edital.id, citacao.id, { conferida: true }), { status: 409 });
+  await revisao.revisarNorma(edital.id, citacao.id, { artigos_texto: "artigos 1 a 3" });
+  await assert.rejects(service.conferirEstrutura(edital.id, citacao.id, { conferida: true }), { status: 400 });
+});

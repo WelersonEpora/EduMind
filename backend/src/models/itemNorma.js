@@ -17,7 +17,8 @@ module.exports = (sequelize) =>
       artigos_texto: { type: DataTypes.TEXT },
       artigos_texto_verificado: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       artigos: { type: DataTypes.JSONB },
-      norma_id: { type: DataTypes.UUID }
+      norma_id: { type: DataTypes.UUID },
+      estrutura_conferida: { type: DataTypes.JSONB }
     },
     {
       tableName: "item_norma",

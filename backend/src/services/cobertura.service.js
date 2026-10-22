@@ -2,14 +2,18 @@
 
 const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
-const { incluirArtigosComLetra } = require("../parsers/artigos.parser");
+const { incluirArtigosComLetra, compararArtigos } = require("../parsers/artigos.parser");
+const { lerEstrutura, descreverCaminho, artigoNoCaminho } = require("../parsers/estrutura.parser");
 const { quandoFoiAlterado } = require("./fontes.service");
 
 // Cobertura do edital (etapa 2c-1): cada artigo pedido nos itens aprovados, cruzado com os artigos da versão da norma
 // que vale para o edital. Situação de cada artigo: "encontrado", "revogado" ou "faltando" (nunca inventar texto).
 //
 // - Abrangência da citação: lista de artigos ("293 a 305; 311-A"), norma inteira (citada sem artigos: decisão do
-//   orientador, 2026-10-22) ou estrutura ("Título II – Capítulos I e II"), que é resolvida na etapa 2c-2.
+//   orientador, 2026-10-22) ou estrutura ("Título II – Capítulos I e II", etapa 2c-2).
+// - Estrutura: o código (parsers/estrutura.parser.js) acha os artigos pela estrutura guardada na divisão; eles só
+//   entram na cobertura depois que o orientador confere a lista (decisão de 2026-10-22). Os artigos citados pelo
+//   número no mesmo trecho ("e também o artigo 92") entram direto.
 // - Versão usada: a mais recente com data até a publicação do edital; sem nenhuma, a mais antiga depois dela (com o
 //   alerta de vigência por artigo). Só versões já divididas em artigos.
 // - Calculada na hora, sem gravar: muda sozinha quando o orientador aprova itens, confirma normas ou envia textos.
@@ -52,7 +56,27 @@ function vigenciaDoArtigo(artigo, dataDoEdital) {
   return null;
 }
 
-function criarCoberturaService({ sequelize }) {
+// Os artigos de cada caminho da estrutura, na ordem do texto da norma.
+function resolverEstrutura(texto, artigos) {
+  const { caminhos, avisos } = lerEstrutura(texto);
+  const partes = caminhos.map((caminho) => {
+    const numeros = [...new Set(artigos.filter((a) => artigoNoCaminho(a.estrutura, caminho)).map((a) => a.numero))];
+    const descricao = descreverCaminho(caminho);
+    if (numeros.length === 0) {
+      const tomo = caminho.some((c) => c.nivel === "tomo") ? " (a divisão em artigos não marca “Tomo”)" : "";
+      avisos.push(`${descricao}: não achado no texto da norma${tomo}.`);
+    }
+    return { descricao, numeros };
+  });
+  if (caminhos.length === 0 && avisos.length === 0) avisos.push("Nenhum título, capítulo ou seção reconhecido no trecho.");
+  const todos = new Set(partes.flatMap((p) => p.numeros));
+  const numeros = [...new Set(artigos.map((a) => a.numero).filter((n) => todos.has(n)))];
+  return { partes, avisos, numeros };
+}
+
+const mesmaLista = (a, b) => Array.isArray(a) && a.length === b.length && a.every((x, i) => x === b[i]);
+
+function criarCoberturaService({ sequelize, agora = () => new Date() }) {
   const { Edital, EditalItem, ItemNorma, Norma, NormaVersao, NormaArtigo } = sequelize.models;
 
   // Cache por chamada: a mesma norma aparece em vários itens.
@@ -73,7 +97,7 @@ function criarCoberturaService({ sequelize }) {
             const artigos = escolha
               ? await NormaArtigo.findAll({
                   where: { versao_id: escolha.versao.id },
-                  attributes: ["id", "numero", "ordem", "revogado", "notas", "redacao_anterior"],
+                  attributes: ["id", "numero", "ordem", "revogado", "notas", "redacao_anterior", "estrutura"],
                   order: [["ordem", "ASC"]],
                   raw: true
                 })
@@ -129,6 +153,7 @@ function criarCoberturaService({ sequelize }) {
     };
 
     let pedidos;
+    let estrutura = null;
     if (abrangencia === "norma_inteira") {
       pedidos = artigos.map((a) => ({ numero: a.numero, origem: "norma_inteira" }));
       pedidos = pedidos.filter((p, i) => pedidos.findIndex((q) => q.numero === p.numero) === i);
@@ -138,11 +163,36 @@ function criarCoberturaService({ sequelize }) {
       const expandido = { artigos: citacao.artigos?.artigos || [], intervalos: citacao.artigos?.intervalos || [] };
       pedidos = incluirArtigosComLetra(expandido, [...porNumero.keys()]).artigos;
     }
+
+    if (abrangencia === "estrutura") {
+      const resolvida = resolverEstrutura(citacao.artigos_texto, artigos);
+      const conferencia = citacao.estrutura_conferida;
+      const vale = Boolean(conferencia && conferencia.texto === citacao.artigos_texto && mesmaLista(conferencia.artigos, resolvida.numeros));
+      estrutura = {
+        partes: resolvida.partes.map((p) => ({
+          descricao: p.descricao,
+          artigos: p.numeros.map((n) => artigoCoberto(n, "estrutura", porNumero, dataDoEdital))
+        })),
+        avisos: resolvida.avisos,
+        total: resolvida.numeros.length,
+        conferida: vale,
+        conferida_em: vale ? conferencia.conferida_em : null,
+        // Conferida antes, mas o trecho foi corrigido na revisão ou a lista mudou (outra versão do texto).
+        mudou: Boolean(conferencia) && !vale
+      };
+      if (vale) {
+        const jaPedidos = new Set(pedidos.map((p) => p.numero));
+        const daEstrutura = resolvida.numeros.filter((n) => !jaPedidos.has(n)).map((numero) => ({ numero, origem: "estrutura" }));
+        pedidos = [...pedidos, ...daEstrutura].sort((a, b) => compararArtigos(a.numero, b.numero));
+      }
+    }
+
     return {
       ...base,
       situacao: "com_texto",
       norma,
       versao,
+      estrutura,
       artigos: pedidos.map((p) => artigoCoberto(p.numero, p.origem, porNumero, dataDoEdital))
     };
   }
@@ -190,7 +240,35 @@ function criarCoberturaService({ sequelize }) {
     return { edital: { id: edital.id, data_publicacao: dataDoEdital }, resumo: resumir(comItens), disciplinas: comItens };
   }
 
-  return { cobertura };
+  // O orientador confere (ou desfaz a conferência de) a lista de artigos de uma citação por estrutura.
+  async function conferirEstrutura(editalId, citacaoId, { conferida } = {}) {
+    if (typeof conferida !== "boolean") throw new AppError(400, 'Indique "conferida": true ou false.');
+    const edital = eUuid(editalId) ? await Edital.findByPk(editalId, { attributes: ["id", "data_publicacao"], raw: true }) : null;
+    if (!edital) throw new AppError(404, "Edital não encontrado.");
+    const citacao = eUuid(citacaoId)
+      ? await ItemNorma.findOne({
+          where: { id: citacaoId },
+          include: [{ model: EditalItem, as: "item", where: { edital_id: editalId, status: "aprovado" }, attributes: ["id"] }]
+        })
+      : null;
+    if (!citacao) throw new AppError(404, "Citação não encontrada entre os itens aprovados deste edital.");
+    if (!conferida) {
+      await citacao.update({ estrutura_conferida: null });
+    } else {
+      if (abrangenciaDe(citacao) !== "estrutura") throw new AppError(400, "Esta citação não é por título, capítulo ou seção.");
+      const { escolha, artigos } = citacao.norma_id ? await carregadorDeNormas(edital.data_publicacao)(citacao.norma_id) : {};
+      if (!escolha) throw new AppError(409, "A norma precisa de texto dividido em artigos antes da conferência.");
+      const { numeros } = resolverEstrutura(citacao.artigos_texto, artigos);
+      if (numeros.length === 0) throw new AppError(409, "Nenhum artigo achado pela estrutura: corrija o trecho na revisão.");
+      await citacao.update({
+        estrutura_conferida: { texto: citacao.artigos_texto, versao_id: escolha.versao.id, artigos: numeros, conferida_em: agora().toISOString() }
+      });
+    }
+    const atualizada = await ItemNorma.findByPk(citacao.id, { raw: true });
+    return cobrirCitacao(atualizada, carregadorDeNormas(edital.data_publicacao), edital.data_publicacao);
+  }
+
+  return { cobertura, conferirEstrutura };
 }
 
 function resumir(disciplinas) {
@@ -201,7 +279,7 @@ function resumir(disciplinas) {
     citacoes: citacoes.length,
     sem_identidade: contar(citacoes, "situacao", "sem_identidade"),
     sem_texto: citacoes.filter((c) => ["sem_texto", "texto_nao_dividido"].includes(c.situacao)).length,
-    estrutura_pendente: contar(citacoes, "abrangencia", "estrutura"),
+    estrutura_pendente: citacoes.filter((c) => c.estrutura && !c.estrutura.conferida).length,
     artigos: artigos.length,
     encontrados: contar(artigos, "situacao", "encontrado"),
     revogados: contar(artigos, "situacao", "revogado"),
