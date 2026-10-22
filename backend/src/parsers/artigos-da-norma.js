@@ -14,7 +14,8 @@ const ROTULOS_DOS_NIVEIS = { parte: "Parte", livro: "Livro", titulo: "Título", 
 const INICIO_DE_ARTIGO = /^Art(?:igo)?\.?\s*(\d{1,3}(?:\.\d{3})*|\d+)\s*(?:[º°ªo](?![a-z]))?\s*(?:-\s*([A-Z])(?![a-zà-ú]))?\s*[.:–—-]?\s*/i;
 const CABECALHO = /^(PARTE|LIVRO|T[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O)\s+([IVXLCDM]+|[ÚU]NIC[OA]|GERAL|ESPECIAL|PRELIMINAR)\b/i;
 const NIVEL_DO_CABECALHO = { parte: "parte", livro: "livro", titulo: "titulo", capitulo: "capitulo", secao: "secao", subsecao: "subsecao" };
-const ADCT = /DISPOSI[ÇC][ÕO]ES CONSTITUCIONAIS TRANSIT[ÓO]RIAS/i;
+// Só a linha que é o título; artigos e notas citam "o art. 60 do Ato das Disposições Constitucionais Transitórias".
+const ADCT = /^\s*(ATO DAS )?DISPOSI[ÇC][ÕO]ES CONSTITUCIONAIS TRANSIT[ÓO]RIAS\s*$/i;
 // Depois do último artigo: local e data da assinatura, ou o aviso do Planalto.
 const FIM_DO_TEXTO = /^((Rio de Janeiro|Bras[íi]lia|S[ãa]o Paulo|Pal[áa]cio[^,]*),\s*(em\s+)?\d{1,2}\b|Este texto n[ãa]o substitui)/i;
 
@@ -147,16 +148,27 @@ function dividirEmArtigos(linhas) {
     atual = null;
   };
 
+  // Depois da assinatura (fim do texto), só o título do ADCT retoma a leitura: na Constituição, o ADCT vem depois do
+  // "Brasília, 5 de outubro de 1988." do texto principal.
+  let encerrado = false;
   for (const linha of linhas) {
     const texto = linha.texto;
-    if (texto && FIM_DO_TEXTO.test(texto) && artigos.length + (atual ? 1 : 0) > 0) break;
-
-    if (texto && ADCT.test(texto)) {
+    const jaLeuArtigo = artigos.length + (atual ? 1 : 0) > 0;
+    if (texto && FIM_DO_TEXTO.test(texto) && jaLeuArtigo) {
       fecharArtigo();
+      encerrado = true;
+      continue;
+    }
+
+    // Antes do primeiro artigo, a menção ao ADCT é o índice ou um link do cabeçalho da página (Planalto), não o início dele.
+    if (texto && ADCT.test(texto) && jaLeuArtigo) {
+      fecharArtigo();
+      encerrado = false;
       prefixo = "ADCT ";
       for (const nivel of NIVEIS) delete estrutura[nivel];
       continue;
     }
+    if (encerrado) continue;
 
     const cabecalho = texto && CABECALHO.exec(texto);
     if (cabecalho) {

@@ -122,7 +122,10 @@ test("para no fim do texto e avisa números repetidos e que faltam na sequência
 });
 
 test("ADCT: os artigos das disposições transitórias ganham o prefixo e não colidem", async () => {
-  const html = `<p>TÍTULO I</p><p>Art. 1º A República.</p><p>Art. 2º Os Poderes.</p>
+  // O link "Ato das Disposições..." no cabeçalho da página do Planalto vem antes do Art. 1º e não é o ADCT.
+  const html = `<p><a href="#adct">Ato das Disposições Constitucionais Transitórias</a></p>
+<p>TÍTULO I</p><p>Art. 1º A República.</p><p>Art. 2º Os Poderes, como prevê o art. 3º do Ato das Disposições Constitucionais Transitórias.</p>
+<p>Brasília, 5 de outubro de 1988.</p><p>ULYSSES GUIMARÃES</p>
 <p>ATO DAS DISPOSIÇÕES CONSTITUCIONAIS TRANSITÓRIAS</p><p>Art. 1º O Presidente prestará compromisso.</p>`;
   const { artigos } = dividirEmArtigos(linhasDoHtml(html));
   assert.deepEqual(artigos.map((a) => a.numero), ["1", "2", "ADCT 1"]);
