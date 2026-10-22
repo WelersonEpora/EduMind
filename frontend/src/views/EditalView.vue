@@ -197,9 +197,13 @@ watch(() => route.params.id, carregar, { immediate: true })
           </div>
         </section>
 
-        <section v-if="conteudo.length" class="painel">
+        <section v-if="edital.status === 'extraido'" class="painel">
           <div class="painel__cabecalho"><h2>Conteúdo programático</h2></div>
-          <ConteudoProgramatico :itens="conteudo" @ver-trecho="verTrecho" />
+          <ConteudoProgramatico v-if="conteudo.length" :itens="conteudo" @ver-trecho="verTrecho" />
+          <div v-else class="painel__corpo pendente">
+            Nenhum item extraído. Se este edital foi extraído antes da árvore do conteúdo existir, use "Extrair de novo"
+            em Metadados.
+          </div>
         </section>
       </div>
 
