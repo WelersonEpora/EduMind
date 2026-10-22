@@ -276,3 +276,34 @@ test("o upload divide o texto em artigos e alerta os artigos cobrados alterados 
   assert.equal(await sequelize.models.NormaArtigo.count(), 4);
   await assert.rejects(service.processarVersao(norma.id, crypto.randomUUID()), { status: 404 });
 });
+
+test("biblioteca: a norma com os editais que a citam e os artigos de cada versão", async (t) => {
+  const { sequelize, service } = await montar(t);
+  const { edital } = await criarEdital(sequelize, "a.pdf");
+  const [cp] = await service.listar(edital.id);
+  const norma = await service.confirmar(edital.id, {
+    citacoes: cp.citacoes.map((c) => c.id),
+    jurisdicao: "BR",
+    tipo: "Decreto-Lei",
+    numero: "2.848",
+    ano: "1940",
+    nome: "Código Penal"
+  });
+  const html = "<p>TÍTULO X</p><p>Art. 293. Falsificar. (Redação dada pela Lei nº 1, de 2020)</p><p>Art. 294. Fabricar.</p>";
+  const { norma: comTexto } = await service.enviarVersao(norma.id, { buffer: Buffer.from(html), nomeArquivo: "cp.html" });
+
+  const [naBiblioteca] = await service.biblioteca();
+  assert.deepEqual(naBiblioteca.editais.map((e) => e.id), [edital.id]);
+  assert.equal((await service.detalharNorma(norma.id)).editais[0].arquivo_nome, "a.pdf");
+
+  const artigos = await service.artigosDaVersao(norma.id, comTexto.versoes[0].id);
+  assert.deepEqual(
+    artigos.map((a) => [a.numero, a.caput, a.estrutura.titulo]),
+    [
+      ["293", "Falsificar.", "Título X"],
+      ["294", "Fabricar.", "Título X"]
+    ]
+  );
+  await assert.rejects(service.artigosDaVersao(norma.id, crypto.randomUUID()), { status: 404 });
+  await assert.rejects(service.detalharNorma(crypto.randomUUID()), { status: 404 });
+});

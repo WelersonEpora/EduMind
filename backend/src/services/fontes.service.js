@@ -321,12 +321,59 @@ function criarFontesService({
     return { caminho: path.join(dirNormas, versao.arquivo_caminho), tipo: EXTENSOES[extensao] || "application/octet-stream" };
   }
 
-  async function biblioteca() {
-    const normas = await Norma.findAll({ order: [["nome", "ASC"]] });
-    return Promise.all(normas.map(resumoDaNorma));
+  // Os editais que citam a norma (pelas citações ligadas a ela), para a biblioteca mostrar onde ela é usada.
+  async function editaisQueCitam(normaId) {
+    const citacoes = await ItemNorma.findAll({
+      where: { norma_id: normaId },
+      attributes: ["id"],
+      include: [
+        {
+          model: EditalItem,
+          as: "item",
+          attributes: ["edital_id"],
+          include: [{ model: Edital, as: "edital", attributes: ["id", "arquivo_nome", "cargo", "orgao"] }]
+        }
+      ]
+    });
+    const editais = new Map(citacoes.map((c) => [c.item.edital.id, c.item.edital.get({ plain: true })]));
+    return [...editais.values()];
   }
 
-  return { listar, confirmar, desligar, buscarUrl, definirUrl, enviarVersao, processarVersao, arquivoDaVersao, biblioteca };
+  async function biblioteca() {
+    const normas = await Norma.findAll({ order: [["nome", "ASC"]] });
+    return Promise.all(normas.map(async (norma) => ({ ...(await resumoDaNorma(norma)), editais: await editaisQueCitam(norma.id) })));
+  }
+
+  async function detalharNorma(normaId) {
+    const norma = await normaExistente(normaId);
+    return { ...(await resumoDaNorma(norma)), editais: await editaisQueCitam(norma.id) };
+  }
+
+  // Os artigos de uma versão, na ordem do texto (a biblioteca mostra a norma como documento).
+  async function artigosDaVersao(normaId, versaoId) {
+    const versao = eUuid(versaoId) ? await NormaVersao.findOne({ where: { id: versaoId, norma_id: normaId } }) : null;
+    if (!versao) throw new AppError(404, "Versão não encontrada nesta norma.");
+    return NormaArtigo.findAll({
+      where: { versao_id: versao.id },
+      attributes: ["id", "numero", "ordem", "caput", "texto_bruto", "notas", "revogado", "estrutura", "redacao_anterior"],
+      order: [["ordem", "ASC"]],
+      raw: true
+    });
+  }
+
+  return {
+    listar,
+    confirmar,
+    desligar,
+    buscarUrl,
+    definirUrl,
+    enviarVersao,
+    processarVersao,
+    arquivoDaVersao,
+    biblioteca,
+    detalharNorma,
+    artigosDaVersao
+  };
 }
 
 module.exports = { criarFontesService, urlOficial, urlDaResposta };

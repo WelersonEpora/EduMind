@@ -172,6 +172,7 @@ function confirmar() {
                   <span v-if="dataDaVersao(versao)" title="Alteração mais recente nas notas de redação">texto de {{ dataDaVersao(versao) }}</span>
                 </template>
                 <span v-else class="pendente">ainda não dividido em artigos</span>
+                <router-link v-if="versao.artigos_total" :to="{ name: 'norma', params: { id: norma.id }, query: { versao: versao.id } }">ver artigos</router-link>
                 <button type="button" class="link" :disabled="ocupado" @click="emit('processar-versao', norma, versao)">processar de novo</button>
               </span>
               <ul v-if="versao.avisos?.length" class="avisos-versao">

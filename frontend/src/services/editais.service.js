@@ -101,6 +101,22 @@ export async function processarVersaoDaNorma(normaId, versaoId) {
   return resposta.data.data
 }
 
+// Biblioteca de normas: todas as normas, a norma com os editais que a citam e os artigos de uma versão.
+export async function listarNormas() {
+  const resposta = await http.get('/api/v1/normas')
+  return resposta.data.data
+}
+
+export async function buscarNorma(normaId) {
+  const resposta = await http.get(`/api/v1/normas/${normaId}`)
+  return resposta.data.data
+}
+
+export async function buscarArtigosDaVersao(normaId, versaoId) {
+  const resposta = await http.get(`/api/v1/normas/${normaId}/versoes/${versaoId}/artigos`)
+  return resposta.data.data
+}
+
 export function urlDoArquivoDaVersao(normaId, versaoId) {
   return `/api/v1/normas/${normaId}/versoes/${versaoId}/arquivo`
 }

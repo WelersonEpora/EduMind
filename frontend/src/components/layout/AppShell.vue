@@ -99,9 +99,15 @@ onMounted(recarregar)
         <i class="pi pi-folder-open"></i><span class="shell__rotulo">Editais</span>
         <span v-if="editais.length" class="shell__contador">{{ editais.length }}</span>
       </router-link>
-      <span class="shell__item shell__item--desativado" title="Biblioteca de normas · etapa 2">
-        <i class="pi pi-book"></i><span class="shell__rotulo">Biblioteca de normas</span><em class="shell__etapa">etapa 2</em>
-      </span>
+      <router-link
+        to="/normas"
+        class="shell__item"
+        :class="{ 'shell__item--ativo': ['normas', 'norma'].includes(route.name) }"
+        title="Biblioteca de normas"
+        @click="fecharGaveta"
+      >
+        <i class="pi pi-book"></i><span class="shell__rotulo">Biblioteca de normas</span>
+      </router-link>
 
       <div class="shell__grupo"><span class="shell__rotulo">Edital</span></div>
       <div v-if="opcoesDeEdital.length" class="shell__seletor">

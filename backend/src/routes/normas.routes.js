@@ -15,6 +15,14 @@ function criarRotasDeNormas(fontesService) {
     res.json({ data: await fontesService.biblioteca() });
   });
 
+  router.get("/:id", async (req, res) => {
+    res.json({ data: await fontesService.detalharNorma(req.params.id) });
+  });
+
+  router.get("/:id/versoes/:versaoId/artigos", async (req, res) => {
+    res.json({ data: await fontesService.artigosDaVersao(req.params.id, req.params.versaoId) });
+  });
+
   // A busca na web da IA, só para achar a URL oficial. Pode levar dezenas de segundos.
   router.post("/:id/buscar-url", async (req, res) => {
     res.json({ data: await fontesService.buscarUrl(req.params.id) });
