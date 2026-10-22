@@ -60,6 +60,46 @@ export async function aprovarVerificados(id, disciplinaId) {
   return resposta.data.data
 }
 
+// Fontes (etapa 2a-1): normas citadas nos itens aprovados e a biblioteca de normas.
+export async function buscarFontes(id) {
+  const resposta = await http.get(`/api/v1/editais/${id}/fontes`)
+  return resposta.data.data
+}
+
+export async function confirmarFonte(id, identidade) {
+  const resposta = await http.post(`/api/v1/editais/${id}/fontes/confirmar`, identidade)
+  return resposta.data.data
+}
+
+export async function desligarFonte(id, citacoes) {
+  const resposta = await http.post(`/api/v1/editais/${id}/fontes/desligar`, { citacoes })
+  return resposta.data.data
+}
+
+// A busca na web da IA leva de alguns segundos a mais de um minuto.
+const TIMEOUT_BUSCA_URL_MS = 180000
+
+export async function buscarUrlDaNorma(normaId) {
+  const resposta = await http.post(`/api/v1/normas/${normaId}/buscar-url`, null, { timeout: TIMEOUT_BUSCA_URL_MS })
+  return resposta.data.data
+}
+
+export async function definirUrlDaNorma(normaId, url) {
+  const resposta = await http.patch(`/api/v1/normas/${normaId}`, { url })
+  return resposta.data.data
+}
+
+export async function enviarVersaoDaNorma(normaId, arquivo) {
+  const formData = new FormData()
+  formData.append('arquivo', arquivo)
+  const resposta = await http.post(`/api/v1/normas/${normaId}/versoes`, formData, { timeout: TIMEOUT_UPLOAD_MS })
+  return { norma: resposta.data.data, jaExistia: resposta.data.jaExistia }
+}
+
+export function urlDoArquivoDaVersao(normaId, versaoId) {
+  return `/api/v1/normas/${normaId}/versoes/${versaoId}/arquivo`
+}
+
 export function urlDoArquivo(id) {
   return `/api/v1/editais/${id}/arquivo`
 }
