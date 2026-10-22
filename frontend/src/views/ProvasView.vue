@@ -55,6 +55,8 @@ function camposIniciais() {
 }
 
 const novaProva = ref(camposIniciais())
+// "Onde procurar" começa recolhido.
+const ondeProcurarAberto = ref(false)
 const seletor = ref(null)
 const enviando = ref(false)
 
@@ -146,8 +148,19 @@ const resumo = computed(() => {
       </section>
 
       <section class="painel">
-        <div class="painel__cabecalho"><h2>Onde procurar</h2></div>
-        <div class="painel__corpo">
+        <button
+          type="button"
+          class="painel__cabecalho recolher"
+          :aria-expanded="ondeProcurarAberto"
+          @click="ondeProcurarAberto = !ondeProcurarAberto"
+        >
+          <h2>Onde procurar</h2>
+          <span class="recolher__dica">
+            {{ area.buscas.length }} {{ area.buscas.length === 1 ? 'busca sugerida' : 'buscas sugeridas' }}
+            <i class="pi" :class="ondeProcurarAberto ? 'pi-chevron-up' : 'pi-chevron-down'" />
+          </span>
+        </button>
+        <div v-show="ondeProcurarAberto" class="painel__corpo">
           <p class="instrucao">
             Buscas montadas a partir do edital (banca, órgão, cargo e normas cobradas). Cada link abre uma busca no
             Google, numa aba nova.
@@ -223,6 +236,29 @@ const resumo = computed(() => {
   .grade {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+.recolher {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.recolher[aria-expanded='false'] {
+  border-bottom: 0;
+}
+.recolher__dica {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
 }
 .instrucao {
   margin: 0 0 0.75rem;
