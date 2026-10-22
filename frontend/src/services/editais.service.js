@@ -130,3 +130,9 @@ export async function buscarCobertura(id) {
   const resposta = await http.get(`/api/v1/editais/${id}/cobertura`)
   return resposta.data.data
 }
+
+// Conferência da lista de artigos de uma citação por estrutura (etapa 2c-2).
+export async function conferirEstrutura(id, citacaoId, conferida) {
+  const resposta = await http.put(`/api/v1/editais/${id}/cobertura/citacoes/${citacaoId}/estrutura`, { conferida })
+  return resposta.data.data
+}

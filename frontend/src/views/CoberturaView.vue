@@ -6,13 +6,15 @@ import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
 import Tag from 'primevue/tag'
-import { buscarArtigosDaVersao, buscarCobertura, buscarEdital } from '../services/editais.service'
+import { useToast } from 'primevue/usetoast'
+import { buscarArtigosDaVersao, buscarCobertura, buscarEdital, conferirEstrutura } from '../services/editais.service'
 import { nomeDoEdital } from '../composables/useEditais'
 import { nomeDaNorma, partesDoArtigo } from '../utils/normas'
 
 // Cobertura do edital (etapa 2c): cada artigo pedido nos itens aprovados, cruzado com o texto da norma na biblioteca.
 // Encontrado, revogado ou faltando; o alerta de vigência marca os alterados depois da publicação do edital.
 const route = useRoute()
+const toast = useToast()
 
 const edital = ref(null)
 const cobertura = ref(null)
@@ -72,7 +74,7 @@ const pendencias = computed(() => {
   if (r.sem_identidade) lista.push(`${r.sem_identidade} ${r.sem_identidade === 1 ? 'citação' : 'citações'} sem a identidade da norma confirmada`)
   if (r.sem_texto) lista.push(`${r.sem_texto} ${r.sem_texto === 1 ? 'citação' : 'citações'} de norma ainda sem texto`)
   if (r.estrutura_pendente) {
-    lista.push(`${r.estrutura_pendente} ${r.estrutura_pendente === 1 ? 'citação' : 'citações'} por título, capítulo ou seção (a resolver na etapa 2c-2)`)
+    lista.push(`${r.estrutura_pendente} ${r.estrutura_pendente === 1 ? 'citação' : 'citações'} por título, capítulo ou seção com a lista de artigos a conferir (abaixo)`)
   }
   return lista
 })
@@ -108,6 +110,22 @@ function dicaDoArtigo(artigo) {
   if (artigo.vigencia === 'talvez') dicas.push('alterado no ano do edital (talvez depois)')
   if (artigo.origem === 'letra_no_intervalo') dicas.push('artigo com letra que veio do texto da norma, não do edital')
   return dicas.join(' · ')
+}
+
+// Conferência da lista de uma citação por estrutura: grava e recarrega a cobertura (os números do topo mudam).
+const conferindo = ref(null)
+
+async function aoConferir(citacao, conferida) {
+  conferindo.value = citacao.id
+  try {
+    await conferirEstrutura(edital.value.id, citacao.id, conferida)
+    cobertura.value = await buscarCobertura(edital.value.id)
+    if (conferida) toast.add({ severity: 'success', summary: 'Lista conferida', detail: 'Os artigos entraram na cobertura.', life: 4000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não foi possível gravar a conferência', detail: e.message, life: 8000 })
+  } finally {
+    conferindo.value = null
+  }
 }
 
 // Texto do artigo, numa janela. Os artigos de cada versão são buscados uma vez.
@@ -207,13 +225,71 @@ const janelaVisivel = computed({
                   <p class="citacao__versao">
                     {{ rotuloDaVersao(citacao.versao) }} · {{ contagem(citacao) }}
                   </p>
-                  <p v-if="citacao.abrangencia === 'estrutura'" class="citacao__situacao">
-                    <i class="pi pi-info-circle" /> Cita títulos, capítulos ou seções: por enquanto só os artigos citados
-                    pelo número aparecem. A parte por estrutura entra na etapa 2c-2.
-                  </p>
                   <p v-for="aviso in citacao.avisos" :key="aviso" class="citacao__situacao">{{ aviso }}</p>
 
-                  <div class="artigos">
+                  <div v-if="citacao.estrutura" class="estrutura" :class="{ 'estrutura--conferida': citacao.estrutura.conferida }">
+                    <div class="estrutura__cabecalho">
+                      <span>
+                        <b>Pela estrutura:</b> {{ citacao.estrutura.total }}
+                        {{ citacao.estrutura.total === 1 ? 'artigo achado' : 'artigos achados' }} pelo código.
+                      </span>
+                      <Tag v-if="citacao.estrutura.conferida" value="conferida" severity="success" />
+                      <Tag v-else value="a conferir" severity="warn" />
+                    </div>
+                    <p v-if="citacao.estrutura.mudou" class="estrutura__aviso">
+                      <i class="pi pi-exclamation-triangle" /> O trecho foi corrigido ou o texto da norma mudou desde a
+                      conferência: confira a lista de novo.
+                    </p>
+                    <p v-for="aviso in citacao.estrutura.avisos" :key="aviso" class="estrutura__aviso">
+                      <i class="pi pi-exclamation-triangle" /> {{ aviso }}
+                    </p>
+                    <details :open="!citacao.estrutura.conferida">
+                      <summary>Artigos por parte</summary>
+                      <div v-for="parte in citacao.estrutura.partes" :key="parte.descricao" class="estrutura__parte">
+                        <span class="estrutura__descricao">{{ parte.descricao }}</span>
+                        <div class="artigos">
+                          <button
+                            v-for="artigo in parte.artigos"
+                            :key="artigo.numero"
+                            type="button"
+                            class="artigo"
+                            :class="[`artigo--${artigo.situacao}`, { 'artigo--vigencia': artigo.vigencia }]"
+                            :title="dicaDoArtigo(artigo)"
+                            @click="abrir(citacao, artigo)"
+                          >
+                            {{ artigo.numero }}
+                          </button>
+                          <span v-if="parte.artigos.length === 0" class="pendente">nenhum artigo</span>
+                        </div>
+                      </div>
+                    </details>
+                    <div class="estrutura__acoes">
+                      <Button
+                        v-if="!citacao.estrutura.conferida"
+                        label="Conferi: vale esta lista"
+                        icon="pi pi-check"
+                        size="small"
+                        :disabled="citacao.estrutura.total === 0"
+                        :loading="conferindo === citacao.id"
+                        @click="aoConferir(citacao, true)"
+                      />
+                      <Button
+                        v-else
+                        label="Desfazer conferência"
+                        severity="secondary"
+                        outlined
+                        size="small"
+                        :loading="conferindo === citacao.id"
+                        @click="aoConferir(citacao, false)"
+                      />
+                      <span class="pendente">
+                        Faltou ou sobrou algo? Corrija o trecho na
+                        <router-link :to="{ name: 'revisao', params: { id: edital.id } }">Revisão</router-link>.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div v-if="citacao.visiveis.length" class="artigos">
                     <button
                       v-for="artigo in citacao.visiveis"
                       :key="artigo.numero"
@@ -415,6 +491,46 @@ const janelaVisivel = computed({
 }
 .artigo:hover {
   filter: brightness(0.92);
+}
+.estrutura {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px dashed var(--warning);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+.estrutura--conferida {
+  border: 1px solid var(--border);
+}
+.estrutura__cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.estrutura__aviso {
+  margin: 0.3rem 0;
+  color: var(--warning-foreground);
+}
+.estrutura details {
+  margin: 0.4rem 0;
+}
+.estrutura summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+.estrutura__parte {
+  margin-top: 0.5rem;
+}
+.estrutura__descricao {
+  font-weight: 600;
+}
+.estrutura__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
 }
 .legenda {
   display: flex;
