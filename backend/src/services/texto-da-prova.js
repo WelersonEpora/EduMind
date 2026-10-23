@@ -8,8 +8,18 @@
 // - A tolerância da conferência é a do edital (verificar-trecho.js): só espaços e hifenização de fim de linha.
 
 const MINIMO_DE_PAGINAS_PARA_REPETICAO = 3;
+// Marca d'água que o site põe em cada página baixada: sai sempre, mesmo num PDF de uma ou duas páginas.
+const MARCAS_DAGUA = [/^pcimarkpci\b/i, /^(https?:\/\/)?(www\.)?pciconcursos\.com\.br\/?$/i];
 
 const chaveDaLinha = (linha) => linha.replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+const eMarcaDagua = (linha) => MARCAS_DAGUA.some((marca) => marca.test(linha.trim()));
+
+// O texto da página sem as linhas de marca d'água. Página só com marca d'água é página sem texto (gabarito em imagem).
+const textoSemMarcaDagua = (texto) =>
+  texto
+    .split("\n")
+    .filter((linha) => !eMarcaDagua(linha))
+    .join("\n");
 
 function textoCorrido(paginas) {
   const ordenadas = [...paginas].sort((a, b) => a.numero - b.numero);
@@ -27,7 +37,7 @@ function textoCorrido(paginas) {
     .map((pagina) =>
       pagina.texto
         .split("\n")
-        .filter((linha) => !repetidas.has(chaveDaLinha(linha)))
+        .filter((linha) => !repetidas.has(chaveDaLinha(linha)) && !eMarcaDagua(linha))
         .join("\n")
     )
     .join("\n");
@@ -105,4 +115,4 @@ function recortar(texto, comeco, final) {
     .trim();
 }
 
-module.exports = { textoCorrido, localizar, contem, recortar, normalizar };
+module.exports = { textoCorrido, textoSemMarcaDagua, localizar, contem, recortar, normalizar };

@@ -5,7 +5,8 @@ import { useToast } from 'primevue/usetoast'
 import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
 import QuestaoCartao from '../components/provas/QuestaoCartao.vue'
-import { buscarQuestoes, revisarClassificacao, revisarQuestao } from '../services/provas.service'
+import GabaritoConferencia from '../components/provas/GabaritoConferencia.vue'
+import { buscarQuestoes, conferirGabarito, revisarClassificacao, revisarQuestao } from '../services/provas.service'
 import { listarNormas } from '../services/editais.service'
 
 // Questões lidas de uma prova (etapa 3b). As conferidas valem direto; a tela abre nas que precisam de revisão.
@@ -79,6 +80,20 @@ async function aoRevisar(questao, alteracoes, revisar = revisarQuestao) {
     ocupada.value = null
   }
 }
+
+// Gabarito lido da imagem: o orientador confere a tabela inteira.
+const conferindo = ref(false)
+async function aoConferirGabarito(respostas) {
+  conferindo.value = true
+  try {
+    dados.value = await conferirGabarito(dados.value.prova.id, respostas)
+    toast.add({ severity: 'success', summary: 'Gabarito conferido', life: 4000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não foi possível salvar', detail: e.message, life: 8000 })
+  } finally {
+    conferindo.value = false
+  }
+}
 </script>
 
 <template>
@@ -103,6 +118,15 @@ async function aoRevisar(questao, alteracoes, revisar = revisarQuestao) {
     <Message v-if="dados.prova.gabarito_situacao && dados.prova.gabarito_situacao !== 'oficial_definitivo'" severity="warn" :closable="false">
       O gabarito desta prova não é o oficial definitivo: confira as respostas antes de usá-las.
     </Message>
+
+    <GabaritoConferencia
+      v-if="dados.prova.leitura?.gabarito?.lido_de === 'imagem' && dados.questoes.length"
+      :prova-id="dados.prova.id"
+      :gabarito="dados.prova.leitura.gabarito"
+      :questoes="dados.questoes"
+      :ocupado="conferindo"
+      @conferir="aoConferirGabarito"
+    />
 
     <template v-if="dados.questoes.length">
       <SelectButton v-model="filtro" :options="FILTROS" option-label="rotulo" option-value="valor" :allow-empty="false" class="filtro" />

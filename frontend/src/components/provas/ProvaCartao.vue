@@ -24,6 +24,12 @@ const SITUACOES_DO_GABARITO = [
 const titulo = computed(() => [props.prova.banca, props.prova.orgao, props.prova.cargo].filter(Boolean).join(' · ') || 'Prova sem identificação')
 const situacao = computed(() => SITUACOES_DO_GABARITO.find((s) => s.valor === props.prova.gabarito_situacao))
 const semTexto = computed(() => props.prova.prova && props.prova.prova.paginas_com_texto === 0)
+const gabaritoSemTexto = computed(() => props.prova.gabarito && props.prova.gabarito.paginas_com_texto === 0)
+// Gabarito lido da imagem e ainda não conferido pelo orientador.
+const gabaritoAConferir = computed(() => {
+  const g = props.prova.leitura?.gabarito
+  return props.prova.leitura_status === 'lida' && g?.lido_de === 'imagem' && !g.conferido_em
+})
 const poucoTexto = computed(() => {
   const p = props.prova.prova
   return p && p.paginas_com_texto > 0 && p.paginas_com_texto < p.total_paginas
@@ -106,6 +112,9 @@ function excluir() {
           <a v-if="prova.gabarito.origem_url" :href="prova.gabarito.origem_url" target="_blank" rel="noopener" class="origem">de onde veio</a>
         </p>
         <p v-else class="alerta">Sem gabarito. Sem ele, as questões desta prova não poderão ser comentadas.</p>
+        <p v-if="gabaritoSemTexto" class="alerta">
+          <i class="pi pi-image" /> Gabarito sem texto (imagem): a IA lê a imagem e você confere as respostas na tela das questões.
+        </p>
         <div class="gabarito">
           <Select
             v-model="gabarito.situacao"
@@ -138,6 +147,7 @@ function excluir() {
             <Tag :value="`${prova.questoes.valida} válidas`" severity="success" />
             <Tag v-if="prova.questoes.a_revisar" :value="`${prova.questoes.a_revisar} a revisar`" severity="warn" />
             <Tag v-if="prova.questoes.descartada" :value="`${prova.questoes.descartada} descartadas`" severity="secondary" />
+            <Tag v-if="gabaritoAConferir" value="gabarito a conferir" severity="warn" icon="pi pi-image" />
             <router-link :to="{ name: 'questoes', params: { provaId: prova.id } }">ver questões</router-link>
           </p>
           <p v-for="aviso in prova.leitura?.avisos || []" :key="aviso" class="alerta"><i class="pi pi-exclamation-triangle" /> {{ aviso }}</p>

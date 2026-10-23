@@ -24,7 +24,7 @@ function criarApp({
   dataDir,
   extracaoService = criarExtracaoService({ sequelize }),
   fontesService = criarFontesService({ sequelize, dirNormas: path.join(dataDir, "normas") }),
-  leituraService = criarLeituraService({ sequelize }),
+  leituraService = criarLeituraService({ sequelize, dirProvas: path.join(dataDir, "provas") }),
   classificacaoService = criarClassificacaoService({ sequelize })
 }) {
   const app = express();

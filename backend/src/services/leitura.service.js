@@ -1,5 +1,7 @@
 "use strict";
 
+const fs = require("node:fs");
+const path = require("node:path");
 const { Op } = require("sequelize");
 const gemini = require("../ai/gemini.provider");
 const { carregarPrompt } = require("../ai/carregar-prompt");
@@ -8,6 +10,7 @@ const { eUuid } = require("../shared/uuid");
 const logger = require("../shared/logger");
 const { textoComMarcasDePagina } = require("./extracao.service");
 const { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes } = require("./leitura-da-prova");
+const { textoCorrido } = require("./texto-da-prova");
 
 // Leitura das questões de uma prova da biblioteca (etapa 3b), em segundo plano: a rota responde na hora com a prova
 // em "lendo" e a tela acompanha pelo leitura_status. As duas chamadas (questões e gabarito) vão em paralelo, só com a
@@ -15,10 +18,21 @@ const { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes } = require("./leitur
 
 const PROMPT_QUESTOES = "prova-questoes.md";
 const PROMPT_GABARITO = "prova-gabarito.md";
+const PROMPT_GABARITO_IMAGEM = "prova-gabarito-imagem.md";
 const STATUS_DA_QUESTAO = ["valida", "a_revisar", "descartada"];
 const LETRAS = ["A", "B", "C", "D", "E"];
+// Os problemas que vêm do gabarito (leitura-da-prova.js): refeitos quando o orientador confere o gabarito.
+const PROBLEMAS_DE_GABARITO = [
+  "Sem resposta no gabarito.",
+  "Resposta do gabarito não reconhecida",
+  "Anulada no gabarito.",
+  "O gabarito (",
+  "Resposta não encontrada no PDF do gabarito.",
+  "A prova ainda não tem gabarito."
+];
+const eProblemaDeGabarito = (problema) => PROBLEMAS_DE_GABARITO.some((p) => problema.startsWith(p));
 
-function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
+function criarLeituraService({ sequelize, dirProvas, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
   const { Prova, ProvaArquivo, ProvaPagina, ProvaQuestao, QuestaoArtigo, Norma } = sequelize.models;
   const aindaLendo = (id) => ({ where: { id, leitura_status: "lendo" } });
 
@@ -28,37 +42,51 @@ function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = 
     return prova;
   }
 
-  async function paginasDo(provaId, tipo) {
-    const arquivo = await ProvaArquivo.findOne({ where: { prova_id: provaId, tipo }, attributes: ["id"], raw: true });
+  async function arquivoDo(provaId, tipo) {
+    return ProvaArquivo.findOne({ where: { prova_id: provaId, tipo }, attributes: ["id", "caminho"], raw: true });
+  }
+
+  async function paginasDo(arquivo) {
     if (!arquivo) return null;
     return ProvaPagina.findAll({ where: { arquivo_id: arquivo.id }, attributes: ["numero", "texto"], order: [["numero", "ASC"]], raw: true });
   }
 
-  async function chamarIa(arquivoDoPrompt, variaveis, responseSchema) {
+  async function chamarIa(arquivoDoPrompt, variaveis, responseSchema, arquivos = []) {
     const { versao, instrucaoDoSistema, prompt } = carregarPrompt(arquivoDoPrompt, variaveis);
-    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema, somentePaga: true });
+    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema, arquivos, somentePaga: true });
     return { texto: resposta.texto, registro: { prompt: versao, modelo: resposta.modelo, chave: resposta.chave, tokens: resposta.tokens } };
   }
 
   async function executar(id) {
     try {
-      const paginasDaProva = await paginasDo(id, "prova");
-      const paginasDoGabarito = await paginasDo(id, "gabarito");
+      const paginasDaProva = await paginasDo(await arquivoDo(id, "prova"));
+      const arquivoDoGabarito = await arquivoDo(id, "gabarito");
+      const paginasDoGabarito = await paginasDo(arquivoDoGabarito);
+      // Gabarito sem texto (só marca d'água): a IA lê o próprio PDF, como imagem.
+      const gabaritoDaImagem = Boolean(paginasDoGabarito) && textoCorrido(paginasDoGabarito).trim() === "";
+      const lerGabarito = () => {
+        if (!paginasDoGabarito) return null;
+        if (!gabaritoDaImagem) return chamarIa(PROMPT_GABARITO, { texto_do_gabarito: textoComMarcasDePagina(paginasDoGabarito) }, ESQUEMA_GABARITO);
+        const buffer = fs.readFileSync(path.join(dirProvas, arquivoDoGabarito.caminho));
+        return chamarIa(PROMPT_GABARITO_IMAGEM, {}, ESQUEMA_GABARITO, [{ mimeType: "application/pdf", buffer }]);
+      };
       const [chamadaQuestoes, chamadaGabarito] = await Promise.all([
         chamarIa(PROMPT_QUESTOES, { texto_da_prova: textoComMarcasDePagina(paginasDaProva) }, ESQUEMA_QUESTOES),
-        paginasDoGabarito ? chamarIa(PROMPT_GABARITO, { texto_do_gabarito: textoComMarcasDePagina(paginasDoGabarito) }, ESQUEMA_GABARITO) : null
+        lerGabarito()
       ]);
-      const { questoes, avisos, versoes } = montarQuestoes({
+      const { questoes, avisos, versoes, gabarito } = montarQuestoes({
         respostaQuestoes: chamadaQuestoes.texto,
         respostaGabarito: chamadaGabarito ? chamadaGabarito.texto : null,
         paginasDaProva,
-        paginasDoGabarito: paginasDoGabarito || []
+        paginasDoGabarito: paginasDoGabarito || [],
+        gabaritoDaImagem
       });
       if (questoes.length === 0) throw new AppError(422, "A leitura não encontrou nenhuma questão no PDF da prova.");
 
       const leitura = {
         concluida_em: agora().toISOString(),
         versoes,
+        gabarito,
         avisos,
         chamadas: [chamadaQuestoes.registro, ...(chamadaGabarito ? [chamadaGabarito.registro] : [])]
       };
@@ -175,7 +203,53 @@ function criarLeituraService({ sequelize, gerarJson = gemini.gerarJson, agora = 
     return questao.get({ plain: true });
   }
 
-  return { iniciar, marcarInterrompidas, questoes, revisarQuestao };
+  // O orientador confere o gabarito inteiro de uma vez (o lido da imagem, que o código não tem como conferir):
+  // { respostas: [{ numero, resposta: "A".."E" | "ANULADA" | null }] }. As respostas trocadas valem nas questões, os
+  // problemas de gabarito delas são refeitos e o gabarito fica conferido.
+  async function conferirGabarito(provaId, { respostas } = {}) {
+    const prova = await provaExistente(provaId);
+    if (prova.leitura_status !== "lida" || !prova.leitura?.gabarito) throw new AppError(400, "A prova ainda não teve o gabarito lido.");
+    if (!Array.isArray(respostas)) throw new AppError(400, "Envie as respostas: [{ numero, resposta }].");
+    const novas = new Map();
+    for (const item of respostas) {
+      const resposta = item?.resposta ?? null;
+      if (!Number.isInteger(item?.numero) || (resposta !== null && resposta !== "ANULADA" && !LETRAS.includes(resposta))) {
+        throw new AppError(400, "Cada resposta precisa do número da questão e de uma letra de A a E, ANULADA ou vazio.");
+      }
+      novas.set(item.numero, resposta);
+    }
+
+    await sequelize.transaction(async (transaction) => {
+      const lista = await ProvaQuestao.findAll({ where: { prova_id: prova.id }, transaction });
+      for (const questao of lista) {
+        if (!novas.has(questao.numero)) continue;
+        const resposta = novas.get(questao.numero);
+        const anterior = questao.anulada ? "ANULADA" : questao.gabarito;
+        const problemas = questao.problemas.filter((p) => !eProblemaDeGabarito(p));
+        if (resposta === null) problemas.push("Sem resposta no gabarito.");
+        else if (resposta === "ANULADA") problemas.push("Anulada no gabarito.");
+        else if (!questao.alternativas.some((a) => a.letra === resposta)) problemas.push(`O gabarito (${resposta}) não é uma das alternativas.`);
+        // Sem problema nenhum, a questão vale; uma já validada só volta para revisão se a resposta mudou e criou problema.
+        let status = questao.status;
+        if (status === "a_revisar" && problemas.length === 0) status = "valida";
+        else if (status === "valida" && resposta !== anterior && problemas.some(eProblemaDeGabarito)) status = "a_revisar";
+        await questao.update(
+          {
+            gabarito: resposta === "ANULADA" ? null : resposta,
+            anulada: resposta === "ANULADA",
+            problemas,
+            status,
+            ...(resposta !== anterior ? { revisada_em: agora() } : {})
+          },
+          { transaction }
+        );
+      }
+      await prova.update({ leitura: { ...prova.leitura, gabarito: { ...prova.leitura.gabarito, conferido_em: agora().toISOString() } } }, { transaction });
+    });
+    return questoes(prova.id);
+  }
+
+  return { iniciar, marcarInterrompidas, questoes, revisarQuestao, conferirGabarito };
 }
 
 module.exports = { criarLeituraService };

@@ -6,6 +6,7 @@ const path = require("node:path");
 const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const pdfTexto = require("./pdf-texto");
+const { textoSemMarcaDagua } = require("./texto-da-prova");
 
 // Biblioteca de provas anteriores (etapa 3a).
 //
@@ -177,7 +178,7 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
           bytes: buffer.length,
           origem_url: origemUrl,
           total_paginas: paginas.length,
-          paginas_com_texto: paginas.filter((p) => p.texto.trim() !== "").length
+          paginas_com_texto: paginas.filter((p) => textoSemMarcaDagua(p.texto).trim() !== "").length
         },
         { transaction }
       );

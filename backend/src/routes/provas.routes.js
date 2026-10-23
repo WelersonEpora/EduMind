@@ -59,6 +59,11 @@ function criarRotasDeProvas(provasService, leituraService, classificacaoService)
     res.json({ data: await leituraService.revisarQuestao(req.params.id, req.params.questaoId, req.body || {}) });
   });
 
+  // O orientador confere o gabarito inteiro: { respostas: [{ numero, resposta }] }.
+  router.put("/:id/gabarito/conferencia", async (req, res) => {
+    res.json({ data: await leituraService.conferirGabarito(req.params.id, req.body || {}) });
+  });
+
   // Classificação das questões por norma e artigo (etapa 3c): em segundo plano, como a leitura.
   router.post("/:id/classificacao", async (req, res) => {
     await classificacaoService.iniciar(req.params.id);

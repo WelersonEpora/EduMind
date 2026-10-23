@@ -1,5 +1,6 @@
 "use strict";
 
+const path = require("node:path");
 const env = require("./config/env");
 const logger = require("./shared/logger");
 const { conectar } = require("./db");
@@ -22,7 +23,7 @@ async function iniciar() {
   const extracaoService = criarExtracaoService({ sequelize });
   const interrompidas = await extracaoService.marcarInterrompidas();
   if (interrompidas > 0) logger.warn(`${interrompidas} extração(ões) interrompida(s) pelo reinício marcada(s) como erro.`);
-  const leituraService = criarLeituraService({ sequelize });
+  const leituraService = criarLeituraService({ sequelize, dirProvas: path.join(env.dataDir, "provas") });
   const leiturasInterrompidas = await leituraService.marcarInterrompidas();
   if (leiturasInterrompidas > 0) logger.warn(`${leiturasInterrompidas} leitura(s) de prova interrompida(s) pelo reinício marcada(s) como erro.`);
   const classificacaoService = criarClassificacaoService({ sequelize });

@@ -156,11 +156,13 @@ async function chamarComChaves(corpo, deps, somentePaga) {
 }
 
 // Resposta em JSON no formato de `responseSchema` (subconjunto OpenAPI da API do Gemini). Devolve o texto como veio:
-// quem lê e valida o JSON é quem chamou.
-async function gerarJson({ systemInstruction, prompt, responseSchema, somentePaga = false }, deps = {}) {
+// quem lê e valida o JSON é quem chamou. `arquivos` ([{ mimeType, buffer }]) vão junto, antes do prompt: o PDF de um
+// gabarito que só tem imagem, para a IA ler o que o texto do PDF não traz.
+async function gerarJson({ systemInstruction, prompt, responseSchema, arquivos = [], somentePaga = false }, deps = {}) {
+  const anexos = arquivos.map((a) => ({ inlineData: { mimeType: a.mimeType, data: a.buffer.toString("base64") } }));
   const corpo = JSON.stringify({
     systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    contents: [{ role: "user", parts: [...anexos, { text: prompt }] }],
     generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0 }
   });
   return chamarComChaves(corpo, deps, somentePaga);

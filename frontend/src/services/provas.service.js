@@ -83,3 +83,10 @@ export async function revisarClassificacao(provaId, questaoId, alteracoes) {
   const resposta = await http.patch(`/api/v1/provas/${provaId}/questoes/${questaoId}/classificacao`, alteracoes)
   return resposta.data.data
 }
+
+// O orientador confere o gabarito inteiro (o lido da imagem): [{ numero, resposta: 'A'..'E' | 'ANULADA' | null }].
+// Devolve a prova e as questões, como buscarQuestoes.
+export async function conferirGabarito(provaId, respostas) {
+  const resposta = await http.put(`/api/v1/provas/${provaId}/gabarito/conferencia`, { respostas })
+  return resposta.data.data
+}

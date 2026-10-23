@@ -85,7 +85,9 @@ const mesmaVersao = (a, b) =>
     .replace(/[̀-ͯ]/g, "");
 
 // -> { questoes: linhas de prova_questao (sem prova_id), avisos, versoes }
-function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, paginasDoGabarito }, { novoId = () => crypto.randomUUID() } = {}) {
+// gabaritoDaImagem: o gabarito não tem texto e a IA leu o PDF como imagem. Sem texto não há o que conferir por código:
+// a resposta não é marcada como problema em cada questão, e o orientador confere o gabarito inteiro de uma vez.
+function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, paginasDoGabarito, gabaritoDaImagem = false }, { novoId = () => crypto.randomUUID() } = {}) {
   const lidas = lerJson(respostaQuestoes, "as questões");
   const textoDaProva = textoCorrido(paginasDaProva);
   const avisos = [];
@@ -160,7 +162,7 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
           resposta = g.resposta;
           if (!alternativas.some((a) => a.letra === resposta)) problemas.push(`O gabarito (${resposta}) não é uma das alternativas.`);
         }
-        if (!g.conferida) problemas.push("Resposta não encontrada no PDF do gabarito.");
+        if (!gabaritoDaImagem && !g.conferida) problemas.push("Resposta não encontrada no PDF do gabarito.");
       }
     } else {
       problemas.push("A prova ainda não tem gabarito.");
@@ -196,7 +198,11 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
     avisos.push(`O caderno é "${versaoDoCaderno}" e o gabarito é de "${versaoDoGabarito}": as respostas podem estar trocadas. Envie o gabarito da mesma versão.`);
   }
 
-  return { questoes, avisos, versoes: { caderno: versaoDoCaderno, gabarito: versaoDoGabarito } };
+  if (gabaritoDaImagem) {
+    avisos.push("O gabarito é uma imagem: a IA leu as respostas, mas não há texto para conferi-las. Confira o gabarito na tela das questões.");
+  }
+  const origemDoGabarito = respostaGabarito === null ? null : { lido_de: gabaritoDaImagem ? "imagem" : "texto", conferido_em: null };
+  return { questoes, avisos, versoes: { caderno: versaoDoCaderno, gabarito: versaoDoGabarito }, gabarito: origemDoGabarito };
 }
 
 module.exports = { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes, respostaNoGabarito };
