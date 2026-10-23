@@ -6,7 +6,7 @@ import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
 import QuestaoCartao from '../components/provas/QuestaoCartao.vue'
 import GabaritoConferencia from '../components/provas/GabaritoConferencia.vue'
-import { buscarQuestoes, conferirGabarito, revisarClassificacao, revisarQuestao } from '../services/provas.service'
+import { buscarQuestoes, conferirGabarito, escolherVersaoDoGabarito, revisarClassificacao, revisarQuestao } from '../services/provas.service'
 import { listarNormas } from '../services/editais.service'
 
 // Questões lidas de uma prova (etapa 3b). As conferidas valem direto; a tela abre nas que precisam de revisão.
@@ -81,19 +81,23 @@ async function aoRevisar(questao, alteracoes, revisar = revisarQuestao) {
   }
 }
 
-// Gabarito lido da imagem: o orientador confere a tabela inteira.
+// Gabarito: o orientador escolhe a versão do caderno e confere a tabela lida da imagem.
+const gabarito = computed(() => dados.value?.prova.leitura?.gabarito)
+const gabaritoPedeDecisao = computed(() => gabarito.value && (gabarito.value.lido_de === 'imagem' || (gabarito.value.versoes || []).length > 1))
 const conferindo = ref(false)
-async function aoConferirGabarito(respostas) {
+async function salvarGabarito(acao, mensagem) {
   conferindo.value = true
   try {
-    dados.value = await conferirGabarito(dados.value.prova.id, respostas)
-    toast.add({ severity: 'success', summary: 'Gabarito conferido', life: 4000 })
+    dados.value = await acao()
+    toast.add({ severity: 'success', summary: mensagem, life: 4000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Não foi possível salvar', detail: e.message, life: 8000 })
   } finally {
     conferindo.value = false
   }
 }
+const aoEscolherVersao = (versao) => salvarGabarito(() => escolherVersaoDoGabarito(dados.value.prova.id, versao), 'Versão do gabarito escolhida')
+const aoConferirGabarito = (respostas) => salvarGabarito(() => conferirGabarito(dados.value.prova.id, respostas), 'Gabarito conferido')
 </script>
 
 <template>
@@ -120,11 +124,12 @@ async function aoConferirGabarito(respostas) {
     </Message>
 
     <GabaritoConferencia
-      v-if="dados.prova.leitura?.gabarito?.lido_de === 'imagem' && dados.questoes.length"
+      v-if="gabaritoPedeDecisao && dados.questoes.length"
       :prova-id="dados.prova.id"
-      :gabarito="dados.prova.leitura.gabarito"
+      :gabarito="gabarito"
       :questoes="dados.questoes"
       :ocupado="conferindo"
+      @escolher-versao="aoEscolherVersao"
       @conferir="aoConferirGabarito"
     />
 

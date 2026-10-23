@@ -9,7 +9,7 @@ const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const logger = require("../shared/logger");
 const { textoComMarcasDePagina } = require("./extracao.service");
-const { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes } = require("./leitura-da-prova");
+const { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes, respostaDaQuestao, eProblemaDeGabarito } = require("./leitura-da-prova");
 const { textoCorrido } = require("./texto-da-prova");
 
 // Leitura das questões de uma prova da biblioteca (etapa 3b), em segundo plano: a rota responde na hora com a prova
@@ -21,16 +21,6 @@ const PROMPT_GABARITO = "prova-gabarito.md";
 const PROMPT_GABARITO_IMAGEM = "prova-gabarito-imagem.md";
 const STATUS_DA_QUESTAO = ["valida", "a_revisar", "descartada"];
 const LETRAS = ["A", "B", "C", "D", "E"];
-// Os problemas que vêm do gabarito (leitura-da-prova.js): refeitos quando o orientador confere o gabarito.
-const PROBLEMAS_DE_GABARITO = [
-  "Sem resposta no gabarito.",
-  "Resposta do gabarito não reconhecida",
-  "Anulada no gabarito.",
-  "O gabarito (",
-  "Resposta não encontrada no PDF do gabarito.",
-  "A prova ainda não tem gabarito."
-];
-const eProblemaDeGabarito = (problema) => PROBLEMAS_DE_GABARITO.some((p) => problema.startsWith(p));
 
 function criarLeituraService({ sequelize, dirProvas, gerarJson = gemini.gerarJson, agora = () => new Date() }) {
   const { Prova, ProvaArquivo, ProvaPagina, ProvaQuestao, QuestaoArtigo, Norma } = sequelize.models;
@@ -203,53 +193,90 @@ function criarLeituraService({ sequelize, dirProvas, gerarJson = gemini.gerarJso
     return questao.get({ plain: true });
   }
 
-  // O orientador confere o gabarito inteiro de uma vez (o lido da imagem, que o código não tem como conferir):
-  // { respostas: [{ numero, resposta: "A".."E" | "ANULADA" | null }] }. As respostas trocadas valem nas questões, os
-  // problemas de gabarito delas são refeitos e o gabarito fica conferido.
-  async function conferirGabarito(provaId, { respostas } = {}) {
+  async function gabaritoLido(provaId) {
     const prova = await provaExistente(provaId);
-    if (prova.leitura_status !== "lida" || !prova.leitura?.gabarito) throw new AppError(400, "A prova ainda não teve o gabarito lido.");
+    if (prova.leitura_status !== "lida" || !prova.leitura?.gabarito?.versoes) throw new AppError(400, "A prova ainda não teve o gabarito lido.");
+    return prova;
+  }
+
+  // Põe nas questões as respostas de um gabarito ({ numero: { resposta, valida, conferida } }) e refaz os problemas
+  // de gabarito. Sem problema nenhum, a questão vale; uma já validada só volta para revisão se a resposta mudou e
+  // criou problema. revisada: a troca foi decisão do orientador (marca revisada_em).
+  async function aplicarRespostas(prova, respostas, { revisada, transaction }) {
+    const lista = await ProvaQuestao.findAll({ where: { prova_id: prova.id }, transaction });
+    for (const questao of lista) {
+      const anterior = questao.anulada ? "ANULADA" : questao.gabarito;
+      const daQuestao = respostaDaQuestao(respostas[questao.numero], questao.alternativas);
+      const problemas = [...questao.problemas.filter((p) => !eProblemaDeGabarito(p)), ...daQuestao.problemas];
+      const nova = daQuestao.anulada ? "ANULADA" : daQuestao.gabarito;
+      let status = questao.status;
+      if (status === "a_revisar" && problemas.length === 0) status = "valida";
+      else if (status === "valida" && nova !== anterior && daQuestao.problemas.length > 0) status = "a_revisar";
+      await questao.update(
+        {
+          gabarito: daQuestao.gabarito,
+          anulada: daQuestao.anulada,
+          problemas,
+          status,
+          ...(revisada && nova !== anterior ? { revisada_em: agora() } : {})
+        },
+        { transaction }
+      );
+    }
+  }
+
+  // O gabarito tem várias versões e o caderno não diz qual é a dele: o orientador escolhe ({ versao: índice }). As
+  // respostas dessa versão vão para as questões; um gabarito lido da imagem volta a ficar "a conferir".
+  async function escolherVersaoDoGabarito(provaId, { versao } = {}) {
+    const prova = await gabaritoLido(provaId);
+    const { gabarito } = prova.leitura;
+    if (!Number.isInteger(versao) || !gabarito.versoes[versao]) throw new AppError(400, "Versão do gabarito inexistente.");
+    await sequelize.transaction(async (transaction) => {
+      await aplicarRespostas(prova, gabarito.versoes[versao].respostas, { revisada: false, transaction });
+      const leitura = {
+        ...prova.leitura,
+        versoes: { ...prova.leitura.versoes, gabarito: gabarito.versoes[versao].versao },
+        // O aviso de "escolha a versão" já foi atendido.
+        avisos: (prova.leitura.avisos || []).filter((a) => !a.endsWith("escolha a versão na tela das questões.")),
+        gabarito: { ...gabarito, versao_escolhida: versao, conferido_em: null }
+      };
+      await prova.update({ leitura }, { transaction });
+    });
+    return questoes(prova.id);
+  }
+
+  // O orientador confere o gabarito inteiro de uma vez (o lido da imagem, que o código não tem como conferir):
+  // { respostas: [{ numero, resposta: "A".."E" | "ANULADA" | null }] }. As trocas valem nas questões e o gabarito
+  // fica conferido.
+  async function conferirGabarito(provaId, { respostas } = {}) {
+    const prova = await gabaritoLido(provaId);
+    if (prova.leitura.gabarito.versao_escolhida === null) throw new AppError(400, "Escolha antes a versão do gabarito.");
     if (!Array.isArray(respostas)) throw new AppError(400, "Envie as respostas: [{ numero, resposta }].");
-    const novas = new Map();
+    const novas = {};
     for (const item of respostas) {
       const resposta = item?.resposta ?? null;
       if (!Number.isInteger(item?.numero) || (resposta !== null && resposta !== "ANULADA" && !LETRAS.includes(resposta))) {
         throw new AppError(400, "Cada resposta precisa do número da questão e de uma letra de A a E, ANULADA ou vazio.");
       }
-      novas.set(item.numero, resposta);
+      if (resposta !== null) novas[item.numero] = { resposta, valida: true, conferida: null };
+    }
+    // Questão que não veio na lista fica como está.
+    const enviadas = new Set(respostas.map((r) => r.numero));
+    const atuais = await ProvaQuestao.findAll({ where: { prova_id: prova.id }, attributes: ["numero", "gabarito", "anulada"], raw: true });
+    for (const q of atuais) {
+      if (enviadas.has(q.numero)) continue;
+      const atual = q.anulada ? "ANULADA" : q.gabarito;
+      if (atual) novas[q.numero] = { resposta: atual, valida: true, conferida: null };
     }
 
     await sequelize.transaction(async (transaction) => {
-      const lista = await ProvaQuestao.findAll({ where: { prova_id: prova.id }, transaction });
-      for (const questao of lista) {
-        if (!novas.has(questao.numero)) continue;
-        const resposta = novas.get(questao.numero);
-        const anterior = questao.anulada ? "ANULADA" : questao.gabarito;
-        const problemas = questao.problemas.filter((p) => !eProblemaDeGabarito(p));
-        if (resposta === null) problemas.push("Sem resposta no gabarito.");
-        else if (resposta === "ANULADA") problemas.push("Anulada no gabarito.");
-        else if (!questao.alternativas.some((a) => a.letra === resposta)) problemas.push(`O gabarito (${resposta}) não é uma das alternativas.`);
-        // Sem problema nenhum, a questão vale; uma já validada só volta para revisão se a resposta mudou e criou problema.
-        let status = questao.status;
-        if (status === "a_revisar" && problemas.length === 0) status = "valida";
-        else if (status === "valida" && resposta !== anterior && problemas.some(eProblemaDeGabarito)) status = "a_revisar";
-        await questao.update(
-          {
-            gabarito: resposta === "ANULADA" ? null : resposta,
-            anulada: resposta === "ANULADA",
-            problemas,
-            status,
-            ...(resposta !== anterior ? { revisada_em: agora() } : {})
-          },
-          { transaction }
-        );
-      }
+      await aplicarRespostas(prova, novas, { revisada: true, transaction });
       await prova.update({ leitura: { ...prova.leitura, gabarito: { ...prova.leitura.gabarito, conferido_em: agora().toISOString() } } }, { transaction });
     });
     return questoes(prova.id);
   }
 
-  return { iniciar, marcarInterrompidas, questoes, revisarQuestao, conferirGabarito };
+  return { iniciar, marcarInterrompidas, questoes, revisarQuestao, escolherVersaoDoGabarito, conferirGabarito };
 }
 
 module.exports = { criarLeituraService };

@@ -28,7 +28,12 @@ const gabaritoSemTexto = computed(() => props.prova.gabarito && props.prova.gaba
 // Gabarito lido da imagem e ainda não conferido pelo orientador.
 const gabaritoAConferir = computed(() => {
   const g = props.prova.leitura?.gabarito
-  return props.prova.leitura_status === 'lida' && g?.lido_de === 'imagem' && !g.conferido_em
+  return props.prova.leitura_status === 'lida' && g?.lido_de === 'imagem' && g.versao_escolhida !== null && !g.conferido_em
+})
+// Gabarito com várias versões e nenhuma escolhida: as respostas ficam vazias até o orientador escolher.
+const versaoAEscolher = computed(() => {
+  const g = props.prova.leitura?.gabarito
+  return props.prova.leitura_status === 'lida' && (g?.versoes || []).length > 1 && g.versao_escolhida === null
 })
 const poucoTexto = computed(() => {
   const p = props.prova.prova
@@ -147,6 +152,7 @@ function excluir() {
             <Tag :value="`${prova.questoes.valida} válidas`" severity="success" />
             <Tag v-if="prova.questoes.a_revisar" :value="`${prova.questoes.a_revisar} a revisar`" severity="warn" />
             <Tag v-if="prova.questoes.descartada" :value="`${prova.questoes.descartada} descartadas`" severity="secondary" />
+            <Tag v-if="versaoAEscolher" value="escolha a versão do gabarito" severity="warn" icon="pi pi-list-check" />
             <Tag v-if="gabaritoAConferir" value="gabarito a conferir" severity="warn" icon="pi pi-image" />
             <router-link :to="{ name: 'questoes', params: { provaId: prova.id } }">ver questões</router-link>
           </p>

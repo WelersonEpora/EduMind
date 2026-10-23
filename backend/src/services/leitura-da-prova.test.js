@@ -21,6 +21,7 @@ const APOIO = { inicio: "O teletrabalho mudou a rotina dos tribunais", fim: "met
 function resposta(questoes, versao = "Versão 1") {
   return JSON.stringify({ versao, questoes });
 }
+const gabarito = (versoes) => JSON.stringify({ versoes });
 
 test("texto corrido: cabeçalho e marca d'água repetidos saem; a questão atravessa a quebra de página", () => {
   const texto = textoCorrido(PAGINAS);
@@ -76,7 +77,7 @@ test("montar questões: conferidas valem direto; as com problema vão para revis
           depende_de_imagem: false
         }
       ]),
-      respostaGabarito: JSON.stringify({ versao: "Versão 1", respostas: [{ numero: 1, resposta: "B" }, { numero: 2, resposta: "E" }, { numero: 3, resposta: "ANULADA" }, { numero: 4, resposta: "A" }] }),
+      respostaGabarito: gabarito([{ versao: "Versão 1", respostas: [{ numero: 1, resposta: "B" }, { numero: 2, resposta: "E" }, { numero: 3, resposta: "ANULADA" }, { numero: 4, resposta: "A" }] }]),
       paginasDaProva: PAGINAS,
       paginasDoGabarito: GABARITO
     },
@@ -101,7 +102,7 @@ test("versões diferentes de caderno e gabarito: tudo vai para revisão, com avi
       [{ numero: 2, disciplina: null, pagina: 2, apoio: null, enunciado: "Assinale a alternativa correta.", alternativas: alternativas("Um.", "Dois.", "Três.", "Quatro.", "Cinco."), depende_de_imagem: false }],
       "Versão 2"
     ),
-    respostaGabarito: JSON.stringify({ versao: "Versão 1", respostas: [{ numero: 2, resposta: "E" }] }),
+    respostaGabarito: gabarito([{ versao: "Versão 1", respostas: [{ numero: 2, resposta: "E" }] }]),
     paginasDaProva: PAGINAS,
     paginasDoGabarito: GABARITO
   });
@@ -110,6 +111,29 @@ test("versões diferentes de caderno e gabarito: tudo vai para revisão, com avi
     "A leitura não trouxe a questão 1.",
     'O caderno é "Versão 2" e o gabarito é de "Versão 1": as respostas podem estar trocadas. Envie o gabarito da mesma versão.'
   ]);
+});
+
+test("gabarito com várias versões: vale a do caderno; sem a do caderno, o orientador escolhe", () => {
+  const questao = { numero: 2, disciplina: null, pagina: 2, apoio: null, enunciado: "Assinale a alternativa correta.", alternativas: alternativas("Um.", "Dois.", "Três.", "Quatro.", "Cinco."), depende_de_imagem: false };
+  const versoes = gabarito([
+    { versao: "Versão 1", respostas: [{ numero: 2, resposta: "E" }] },
+    { versao: "Versão 2", respostas: [{ numero: 2, resposta: "B" }] }
+  ]);
+  const paginasDoGabarito = [{ numero: 1, texto: "Versão 1\n2 - E\nVersão 2\n2 - B" }];
+
+  const doCaderno = montarQuestoes({ respostaQuestoes: resposta([questao], "VERSÃO 2"), respostaGabarito: versoes, paginasDaProva: PAGINAS, paginasDoGabarito });
+  assert.deepEqual([doCaderno.questoes[0].gabarito, doCaderno.questoes[0].problemas], ["B", []]);
+  assert.equal(doCaderno.gabarito.versao_escolhida, 1);
+  assert.equal(doCaderno.versoes.gabarito, "Versão 2");
+
+  const semVersao = montarQuestoes({ respostaQuestoes: resposta([questao], null), respostaGabarito: versoes, paginasDaProva: PAGINAS, paginasDoGabarito });
+  assert.deepEqual([semVersao.questoes[0].gabarito, semVersao.questoes[0].status, semVersao.questoes[0].problemas], [null, "a_revisar", ["Escolha a versão do gabarito."]]);
+  assert.equal(semVersao.gabarito.versao_escolhida, null);
+  assert.deepEqual(semVersao.gabarito.versoes.map((v) => [v.versao, v.respostas[2]]), [
+    ["Versão 1", { resposta: "E", valida: true, conferida: true }],
+    ["Versão 2", { resposta: "B", valida: true, conferida: true }]
+  ]);
+  assert.ok(semVersao.avisos.includes("O gabarito tem 2 versões (Versão 1, Versão 2) e o caderno não diz qual é a dele: escolha a versão na tela das questões."));
 });
 
 test("sem gabarito: as questões ficam para revisão; JSON inválido vira erro claro", () => {

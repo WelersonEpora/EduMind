@@ -40,16 +40,26 @@ const ESQUEMA_QUESTOES = {
   required: ["versao", "questoes"]
 };
 
+// Todas as versões do caderno que o gabarito traz: qual vale é o caderno que diz (ou o orientador escolhe).
 const ESQUEMA_GABARITO = {
   type: "OBJECT",
   properties: {
-    versao: TEXTO_NULO,
-    respostas: {
+    versoes: {
       type: "ARRAY",
-      items: { type: "OBJECT", properties: { numero: { type: "INTEGER" }, resposta: { type: "STRING" } }, required: ["numero", "resposta"] }
+      items: {
+        type: "OBJECT",
+        properties: {
+          versao: TEXTO_NULO,
+          respostas: {
+            type: "ARRAY",
+            items: { type: "OBJECT", properties: { numero: { type: "INTEGER" }, resposta: { type: "STRING" } }, required: ["numero", "resposta"] }
+          }
+        },
+        required: ["versao", "respostas"]
+      }
     }
   },
-  required: ["versao", "respostas"]
+  required: ["versoes"]
 };
 
 const LETRAS = ["A", "B", "C", "D", "E"];
@@ -84,7 +94,62 @@ const mesmaVersao = (a, b) =>
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "");
 
-// -> { questoes: linhas de prova_questao (sem prova_id), avisos, versoes }
+// Os problemas que vêm do gabarito: refeitos quando o orientador escolhe a versão ou confere o gabarito.
+const PROBLEMAS_DE_GABARITO = [
+  "Sem resposta no gabarito.",
+  "Resposta do gabarito não reconhecida",
+  "Anulada no gabarito.",
+  "O gabarito (",
+  "Resposta não encontrada no PDF do gabarito.",
+  "A prova ainda não tem gabarito.",
+  "O gabarito é de outra versão do caderno.",
+  "Escolha a versão do gabarito."
+];
+const eProblemaDeGabarito = (problema) => PROBLEMAS_DE_GABARITO.some((p) => problema.startsWith(p));
+
+// As versões do gabarito lido: [{ versao, respostas: { numero: { resposta, valida, conferida } } }]. conferida: o par
+// número-resposta existe no texto do PDF; null quando o gabarito é imagem (não há texto para conferir).
+function versoesDoGabarito(respostaGabarito, textoDoGabarito, gabaritoDaImagem) {
+  const lido = lerJson(respostaGabarito, "o gabarito");
+  return lista(lido.versoes).map((v) => {
+    const respostas = {};
+    for (const item of lista(v?.respostas)) {
+      if (!Number.isInteger(item?.numero)) continue;
+      const resposta = String(item.resposta ?? "").trim().toUpperCase();
+      const valida = resposta === "ANULADA" || LETRAS.includes(resposta);
+      respostas[item.numero] = { resposta, valida, conferida: gabaritoDaImagem ? null : valida && respostaNoGabarito(textoDoGabarito, item.numero, resposta) };
+    }
+    return { versao: textoOuNulo(v?.versao), respostas };
+  });
+}
+
+// Qual versão do gabarito vale: a única, ou a de mesmo nome que a do caderno. null: o orientador escolhe.
+function versaoQueVale(versoes, versaoDoCaderno) {
+  if (versoes.length === 1) return 0;
+  if (!versaoDoCaderno) return null;
+  const indice = versoes.findIndex((v) => v.versao && mesmaVersao(v.versao, versaoDoCaderno));
+  return indice >= 0 ? indice : null;
+}
+
+// A resposta de uma questão a partir da linha do gabarito ({ resposta, valida, conferida } ou nada).
+function respostaDaQuestao(entrada, alternativas) {
+  const problemas = [];
+  if (!entrada) return { gabarito: null, anulada: false, problemas: ["Sem resposta no gabarito."] };
+  if (!entrada.valida) return { gabarito: null, anulada: false, problemas: [`Resposta do gabarito não reconhecida: "${entrada.resposta}".`] };
+  let gabarito = null;
+  let anulada = false;
+  if (entrada.resposta === "ANULADA") {
+    anulada = true;
+    problemas.push("Anulada no gabarito.");
+  } else {
+    gabarito = entrada.resposta;
+    if (!alternativas.some((a) => a.letra === gabarito)) problemas.push(`O gabarito (${gabarito}) não é uma das alternativas.`);
+  }
+  if (entrada.conferida === false) problemas.push("Resposta não encontrada no PDF do gabarito.");
+  return { gabarito, anulada, problemas };
+}
+
+// -> { questoes: linhas de prova_questao (sem prova_id), avisos, versoes, gabarito }
 // gabaritoDaImagem: o gabarito não tem texto e a IA leu o PDF como imagem. Sem texto não há o que conferir por código:
 // a resposta não é marcada como problema em cada questão, e o orientador confere o gabarito inteiro de uma vez.
 function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, paginasDoGabarito, gabaritoDaImagem = false }, { novoId = () => crypto.randomUUID() } = {}) {
@@ -92,19 +157,7 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
   const textoDaProva = textoCorrido(paginasDaProva);
   const avisos = [];
 
-  const gabarito = new Map();
-  let versaoDoGabarito = null;
-  if (respostaGabarito !== null) {
-    const lido = lerJson(respostaGabarito, "o gabarito");
-    versaoDoGabarito = textoOuNulo(lido.versao);
-    const textoDoGabarito = textoCorrido(paginasDoGabarito);
-    for (const item of lista(lido.respostas)) {
-      if (!Number.isInteger(item?.numero)) continue;
-      const resposta = String(item.resposta ?? "").trim().toUpperCase();
-      const valida = resposta === "ANULADA" || LETRAS.includes(resposta);
-      gabarito.set(item.numero, { resposta, valida, conferida: valida && respostaNoGabarito(textoDoGabarito, item.numero, resposta) });
-    }
-  }
+  const versoes = respostaGabarito === null ? [] : versoesDoGabarito(respostaGabarito, textoCorrido(paginasDoGabarito), gabaritoDaImagem);
 
   // Questões repetidas na resposta: fica a primeira.
   const vistas = new Set();
@@ -118,7 +171,12 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
   for (const q of questoesLidas) contagens.set(lista(q.alternativas).length, (contagens.get(lista(q.alternativas).length) || 0) + 1);
   const alternativasDaProva = [...contagens.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 5;
 
+  // A versão do gabarito que vale. Gabarito de uma versão só com nome diferente do caderno: vale, mas tudo vai para
+  // revisão. Várias versões sem uma que bata com o caderno: nenhuma vale até o orientador escolher.
   const versaoDoCaderno = textoOuNulo(lidas.versao);
+  const indiceDaVersao = versaoQueVale(versoes, versaoDoCaderno);
+  const escolhida = indiceDaVersao === null ? null : versoes[indiceDaVersao];
+  const versaoDoGabarito = escolhida?.versao ?? null;
   const versoesDiferentes = Boolean(versaoDoCaderno && versaoDoGabarito && !mesmaVersao(versaoDoCaderno, versaoDoGabarito));
 
   const questoes = questoesLidas.map((q) => {
@@ -150,22 +208,13 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
 
     let resposta = null;
     let anulada = false;
-    if (respostaGabarito !== null) {
-      const g = gabarito.get(q.numero);
-      if (!g) problemas.push("Sem resposta no gabarito.");
-      else if (!g.valida) problemas.push(`Resposta do gabarito não reconhecida: "${g.resposta}".`);
-      else {
-        if (g.resposta === "ANULADA") {
-          anulada = true;
-          problemas.push("Anulada no gabarito.");
-        } else {
-          resposta = g.resposta;
-          if (!alternativas.some((a) => a.letra === resposta)) problemas.push(`O gabarito (${resposta}) não é uma das alternativas.`);
-        }
-        if (!gabaritoDaImagem && !g.conferida) problemas.push("Resposta não encontrada no PDF do gabarito.");
-      }
-    } else {
-      problemas.push("A prova ainda não tem gabarito.");
+    if (respostaGabarito === null) problemas.push("A prova ainda não tem gabarito.");
+    else if (!escolhida) problemas.push("Escolha a versão do gabarito.");
+    else {
+      const daQuestao = respostaDaQuestao(escolhida.respostas[q.numero], alternativas);
+      resposta = daQuestao.gabarito;
+      anulada = daQuestao.anulada;
+      problemas.push(...daQuestao.problemas);
     }
 
     return {
@@ -191,18 +240,24 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
   const faltando = [];
   for (let n = 1; n <= maior; n += 1) if (!numeros.has(n)) faltando.push(n);
   if (faltando.length > 0) avisos.push(`A leitura não trouxe ${faltando.length === 1 ? "a questão" : "as questões"} ${faltando.join(", ")}.`);
-  const soNoGabarito = [...gabarito.keys()].filter((n) => !numeros.has(n)).sort((a, b) => a - b);
+  const soNoGabarito = Object.keys(escolhida?.respostas || {}).map(Number).filter((n) => !numeros.has(n)).sort((a, b) => a - b);
   if (soNoGabarito.length > 0) avisos.push(`O gabarito tem ${soNoGabarito.length === 1 ? "a questão" : "as questões"} ${soNoGabarito.join(", ")}, que não ${soNoGabarito.length === 1 ? "veio" : "vieram"} na leitura da prova.`);
 
   if (versoesDiferentes) {
     avisos.push(`O caderno é "${versaoDoCaderno}" e o gabarito é de "${versaoDoGabarito}": as respostas podem estar trocadas. Envie o gabarito da mesma versão.`);
   }
 
+  if (versoes.length > 1 && !escolhida) {
+    const nomes = versoes.map((v, i) => v.versao || `versão ${i + 1}`).join(", ");
+    avisos.push(`O gabarito tem ${versoes.length} versões (${nomes}) e ${versaoDoCaderno ? `nenhuma é a do caderno ("${versaoDoCaderno}")` : "o caderno não diz qual é a dele"}: escolha a versão na tela das questões.`);
+  }
+  if (respostaGabarito !== null && versoes.length === 0) avisos.push("A leitura do gabarito não trouxe nenhuma resposta.");
   if (gabaritoDaImagem) {
     avisos.push("O gabarito é uma imagem: a IA leu as respostas, mas não há texto para conferi-las. Confira o gabarito na tela das questões.");
   }
-  const origemDoGabarito = respostaGabarito === null ? null : { lido_de: gabaritoDaImagem ? "imagem" : "texto", conferido_em: null };
+  const origemDoGabarito =
+    respostaGabarito === null ? null : { lido_de: gabaritoDaImagem ? "imagem" : "texto", versoes, versao_escolhida: indiceDaVersao, conferido_em: null };
   return { questoes, avisos, versoes: { caderno: versaoDoCaderno, gabarito: versaoDoGabarito }, gabarito: origemDoGabarito };
 }
 
-module.exports = { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes, respostaNoGabarito };
+module.exports = { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes, respostaNoGabarito, respostaDaQuestao, eProblemaDeGabarito };

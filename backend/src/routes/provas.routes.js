@@ -59,6 +59,11 @@ function criarRotasDeProvas(provasService, leituraService, classificacaoService)
     res.json({ data: await leituraService.revisarQuestao(req.params.id, req.params.questaoId, req.body || {}) });
   });
 
+  // Gabarito com várias versões: o orientador escolhe a do caderno ({ versao: índice }).
+  router.put("/:id/gabarito/versao", async (req, res) => {
+    res.json({ data: await leituraService.escolherVersaoDoGabarito(req.params.id, req.body || {}) });
+  });
+
   // O orientador confere o gabarito inteiro: { respostas: [{ numero, resposta }] }.
   router.put("/:id/gabarito/conferencia", async (req, res) => {
     res.json({ data: await leituraService.conferirGabarito(req.params.id, req.body || {}) });

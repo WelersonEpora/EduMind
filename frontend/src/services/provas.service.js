@@ -90,3 +90,9 @@ export async function conferirGabarito(provaId, respostas) {
   const resposta = await http.put(`/api/v1/provas/${provaId}/gabarito/conferencia`, { respostas })
   return resposta.data.data
 }
+
+// Gabarito com várias versões: o orientador escolhe a do caderno (índice). Devolve a prova e as questões.
+export async function escolherVersaoDoGabarito(provaId, versao) {
+  const resposta = await http.put(`/api/v1/provas/${provaId}/gabarito/versao`, { versao })
+  return resposta.data.data
+}

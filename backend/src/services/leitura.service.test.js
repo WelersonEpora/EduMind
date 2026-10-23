@@ -24,7 +24,7 @@ const gerarJson = async ({ responseSchema }) => ({
             { numero: 2, disciplina: "Direito", pagina: 1, apoio: null, enunciado: "Outra questão inventada.", alternativas: alternativas("A.", "B.", "C.", "D.", "E."), depende_de_imagem: false }
           ]
         }
-      : { versao: null, respostas: [{ numero: 1, resposta: "C" }, { numero: 2, resposta: "A" }] }
+      : { versoes: [{ versao: null, respostas: [{ numero: 1, resposta: "C" }, { numero: 2, resposta: "A" }] }] }
   ),
   modelo: "m",
   chave: "paga",
@@ -80,9 +80,15 @@ test("revisar questão; ler de novo com revisão feita pede confirmação", asyn
 test("gabarito só com marca d'água: a IA lê o PDF; o orientador confere o gabarito inteiro", async (t) => {
   const marca = "pcimarkpci MjgwNDowMTRj:VGh1LCAy\nwww.pciconcursos.com.br";
   const anexos = [];
+  // O gabarito traz duas versões e o caderno (versao: null) não diz qual é a dele.
   const gerar = async (pedido) => {
-    if (pedido.arquivos.length) anexos.push(pedido.arquivos[0].mimeType);
-    return gerarJson(pedido);
+    if (!pedido.arquivos.length) return gerarJson(pedido);
+    anexos.push(pedido.arquivos[0].mimeType);
+    const versoes = [
+      { versao: "Versão 1", respostas: [{ numero: 1, resposta: "D" }, { numero: 2, resposta: "D" }] },
+      { versao: "Versão 2", respostas: [{ numero: 1, resposta: "C" }, { numero: 2, resposta: "A" }] }
+    ];
+    return { texto: JSON.stringify({ versoes }), modelo: "m", chave: "paga", tokens: 1 };
   };
   const { prova, provas, leitura } = await montar(t, { paginasDoGabarito: [{ numero: 1, texto: marca }, { numero: 2, texto: marca }], gerar });
   const [naBiblioteca] = await provas.biblioteca();
@@ -91,8 +97,15 @@ test("gabarito só com marca d'água: a IA lê o PDF; o orientador confere o gab
   await (await leitura.iniciar(prova.id)).concluida;
   assert.deepEqual(anexos, ["application/pdf"]);
   let lida = await leitura.questoes(prova.id);
-  assert.deepEqual(lida.prova.leitura.gabarito, { lido_de: "imagem", conferido_em: null });
-  // Sem texto para conferir, a resposta não vira problema em cada questão.
+  assert.deepEqual([lida.prova.leitura.gabarito.lido_de, lida.prova.leitura.gabarito.versao_escolhida], ["imagem", null]);
+  assert.deepEqual(lida.questoes.map((q) => [q.gabarito, q.problemas.at(-1)]), [[null, "Escolha a versão do gabarito."], [null, "Escolha a versão do gabarito."]]);
+  await assert.rejects(leitura.conferirGabarito(prova.id, { respostas: [] }), { status: 400 });
+
+  // O orientador escolhe a versão 2: as respostas dela vão para as questões, sem problema de "não encontrada no PDF".
+  await assert.rejects(leitura.escolherVersaoDoGabarito(prova.id, { versao: 5 }), { status: 400 });
+  lida = await leitura.escolherVersaoDoGabarito(prova.id, { versao: 1 });
+  assert.deepEqual([lida.prova.leitura.gabarito.versao_escolhida, lida.prova.leitura.gabarito.conferido_em, lida.prova.leitura.versoes.gabarito], [1, null, "Versão 2"]);
+  assert.equal(lida.prova.leitura.avisos.some((a) => a.includes("escolha a versão")), false);
   assert.deepEqual(lida.questoes.map((q) => [q.gabarito, q.status]), [["C", "valida"], ["A", "a_revisar"]]);
 
   await assert.rejects(leitura.conferirGabarito(prova.id, { respostas: [{ numero: 1, resposta: "F" }] }), { status: 400 });
