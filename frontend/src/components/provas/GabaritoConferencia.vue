@@ -31,6 +31,12 @@ const versoes = computed(() =>
 )
 const variasVersoes = computed(() => versoes.value.length > 1)
 const escolhida = computed(() => props.gabarito.versao_escolhida)
+// A indicação do sistema: a IA resolveu as questões sem ver o gabarito e o código contou em qual versão batem.
+const indicacao = computed(() => props.gabarito.indicacao || null)
+const contagem = computed(() =>
+  indicacao.value?.batem ? versoes.value.map((v, i) => `${v.rotulo}: ${indicacao.value.batem[i]}`).join(' · ') : ''
+)
+const indicadaPeloSistema = computed(() => Number.isInteger(indicacao.value?.indice) && indicacao.value.indice === escolhida.value)
 const versaoNoSeletor = ref(null)
 watch(escolhida, (v) => (versaoNoSeletor.value = v), { immediate: true })
 
@@ -71,9 +77,16 @@ function conferir() {
           dele. Sem a versão certa, as respostas ficam trocadas.
         </p>
         <p v-else class="instrucao">
-          O gabarito tem {{ versoes.length }} versões; vale a <strong>{{ versoes[escolhida].rotulo }}</strong>.
+          O gabarito tem {{ versoes.length }} versões; vale a <strong>{{ versoes[escolhida].rotulo }}</strong>{{
+            indicadaPeloSistema ? ', indicada pelo sistema' : ''
+          }}.
         </p>
-        <p class="instrucao">
+        <p v-if="indicacao?.batem" class="instrucao">
+          A IA resolveu {{ indicacao.consideradas }} questões sem ver o gabarito; quantas batem em cada versão: {{ contagem }}.
+          <template v-if="indicacao.indice === null">A diferença ficou pequena para o sistema escolher sozinho.</template>
+        </p>
+        <p v-else-if="indicacao?.erro" class="instrucao">O sistema não conseguiu indicar a versão: {{ indicacao.erro }}</p>
+        <p v-if="!indicadaPeloSistema" class="instrucao">
           Para descobrir a versão do caderno, pegue 4 ou 5 questões de resposta inequívoca (Atualidades, Matemática) e veja
           em qual versão do <a :href="urlDoGabarito" target="_blank" rel="noopener">PDF do gabarito</a> todas batem.
         </p>

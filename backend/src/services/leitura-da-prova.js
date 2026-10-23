@@ -152,7 +152,8 @@ function respostaDaQuestao(entrada, alternativas) {
 // -> { questoes: linhas de prova_questao (sem prova_id), avisos, versoes, gabarito }
 // gabaritoDaImagem: o gabarito não tem texto e a IA leu o PDF como imagem. Sem texto não há o que conferir por código:
 // a resposta não é marcada como problema em cada questão, e o orientador confere o gabarito inteiro de uma vez.
-function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, paginasDoGabarito, gabaritoDaImagem = false }, { novoId = () => crypto.randomUUID() } = {}) {
+// versaoIndicada: o índice da versão do gabarito que o sistema indicou pela resolução (resolucao-da-prova.js).
+function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, paginasDoGabarito, gabaritoDaImagem = false, versaoIndicada = null }, { novoId = () => crypto.randomUUID() } = {}) {
   const lidas = lerJson(respostaQuestoes, "as questões");
   const textoDaProva = textoCorrido(paginasDaProva);
   const avisos = [];
@@ -174,7 +175,7 @@ function montarQuestoes({ respostaQuestoes, respostaGabarito, paginasDaProva, pa
   // A versão do gabarito que vale. Gabarito de uma versão só com nome diferente do caderno: vale, mas tudo vai para
   // revisão. Várias versões sem uma que bata com o caderno: nenhuma vale até o orientador escolher.
   const versaoDoCaderno = textoOuNulo(lidas.versao);
-  const indiceDaVersao = versaoQueVale(versoes, versaoDoCaderno);
+  const indiceDaVersao = versaoIndicada ?? versaoQueVale(versoes, versaoDoCaderno);
   const escolhida = indiceDaVersao === null ? null : versoes[indiceDaVersao];
   const versaoDoGabarito = escolhida?.versao ?? null;
   const versoesDiferentes = Boolean(versaoDoCaderno && versaoDoGabarito && !mesmaVersao(versaoDoCaderno, versaoDoGabarito));

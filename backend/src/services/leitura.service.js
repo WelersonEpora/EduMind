@@ -11,6 +11,7 @@ const logger = require("../shared/logger");
 const { textoComMarcasDePagina } = require("./extracao.service");
 const { ESQUEMA_QUESTOES, ESQUEMA_GABARITO, montarQuestoes, respostaDaQuestao, eProblemaDeGabarito } = require("./leitura-da-prova");
 const { textoCorrido } = require("./texto-da-prova");
+const { ESQUEMA_RESOLUCAO, textoParaResolver, lerResolucao, indicarVersao } = require("./resolucao-da-prova");
 
 // Leitura das questões de uma prova da biblioteca (etapa 3b), em segundo plano: a rota responde na hora com a prova
 // em "lendo" e a tela acompanha pelo leitura_status. As duas chamadas (questões e gabarito) vão em paralelo, só com a
@@ -19,6 +20,7 @@ const { textoCorrido } = require("./texto-da-prova");
 const PROMPT_QUESTOES = "prova-questoes.md";
 const PROMPT_GABARITO = "prova-gabarito.md";
 const PROMPT_GABARITO_IMAGEM = "prova-gabarito-imagem.md";
+const PROMPT_RESOLUCAO = "prova-resolucao.md";
 const STATUS_DA_QUESTAO = ["valida", "a_revisar", "descartada"];
 const LETRAS = ["A", "B", "C", "D", "E"];
 
@@ -64,21 +66,41 @@ function criarLeituraService({ sequelize, dirProvas, gerarJson = gemini.gerarJso
         chamarIa(PROMPT_QUESTOES, { texto_da_prova: textoComMarcasDePagina(paginasDaProva) }, ESQUEMA_QUESTOES),
         lerGabarito()
       ]);
-      const { questoes, avisos, versoes, gabarito } = montarQuestoes({
+      const entrada = {
         respostaQuestoes: chamadaQuestoes.texto,
         respostaGabarito: chamadaGabarito ? chamadaGabarito.texto : null,
         paginasDaProva,
         paginasDoGabarito: paginasDoGabarito || [],
         gabaritoDaImagem
-      });
-      if (questoes.length === 0) throw new AppError(422, "A leitura não encontrou nenhuma questão no PDF da prova.");
+      };
+      let montagem = montarQuestoes(entrada);
+      if (montagem.questoes.length === 0) throw new AppError(422, "A leitura não encontrou nenhuma questão no PDF da prova.");
+      const chamadas = [chamadaQuestoes.registro, ...(chamadaGabarito ? [chamadaGabarito.registro] : [])];
+
+      // Várias versões e o caderno não diz a dele: a IA resolve as questões e o código conta em qual versão batem.
+      // Se a resolução falhar, a leitura segue e o orientador escolhe a versão.
+      const g = montagem.gabarito;
+      if (g && g.versoes.length > 1 && g.versao_escolhida === null) {
+        let indicacao;
+        try {
+          const resolucao = await chamarIa(PROMPT_RESOLUCAO, { questoes: textoParaResolver(montagem.questoes) }, ESQUEMA_RESOLUCAO);
+          chamadas.push(resolucao.registro);
+          indicacao = indicarVersao(g.versoes, lerResolucao(resolucao.texto), montagem.questoes);
+        } catch (erro) {
+          logger.warn({ err: erro, provaId: id }, "a resolução para indicar a versão falhou");
+          indicacao = { erro: erro instanceof AppError || erro instanceof gemini.ErroDoGemini ? erro.message : "Erro inesperado." };
+        }
+        if (Number.isInteger(indicacao.indice)) montagem = montarQuestoes({ ...entrada, versaoIndicada: indicacao.indice });
+        montagem.gabarito.indicacao = indicacao;
+      }
+      const { questoes, avisos, versoes, gabarito } = montagem;
 
       const leitura = {
         concluida_em: agora().toISOString(),
         versoes,
         gabarito,
         avisos,
-        chamadas: [chamadaQuestoes.registro, ...(chamadaGabarito ? [chamadaGabarito.registro] : [])]
+        chamadas
       };
       const gravou = await sequelize.transaction(async (transaction) => {
         const [alterados] = await Prova.update({ leitura_status: "lida", leitura_erro: null, leitura, classificacao_status: null, classificacao_erro: null, classificacao: null }, { ...aindaLendo(id), transaction });

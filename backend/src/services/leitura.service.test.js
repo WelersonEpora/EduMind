@@ -120,6 +120,33 @@ test("gabarito só com marca d'água: a IA lê o PDF; o orientador confere o gab
   );
 });
 
+test("várias versões sem a do caderno: a resolução da IA indica a versão quando a diferença é grande", async (t) => {
+  const marca = "pcimarkpci x\nwww.pciconcursos.com.br";
+  const prompts = [];
+  const gerar = async (pedido) => {
+    if (pedido.responseSchema.properties.versoes) {
+      const versoes = [
+        { versao: "Versão 1", respostas: [{ numero: 1, resposta: "D" }, { numero: 2, resposta: "D" }] },
+        { versao: "Versão 2", respostas: [{ numero: 1, resposta: "C" }, { numero: 2, resposta: "A" }] }
+      ];
+      return { texto: JSON.stringify({ versoes }), modelo: "m", chave: "paga", tokens: 1 };
+    }
+    if (pedido.responseSchema.properties.respostas) {
+      prompts.push(pedido.prompt);
+      return { texto: JSON.stringify({ respostas: [{ numero: 1, resposta: "C" }, { numero: 2, resposta: "A" }] }), modelo: "m", chave: "paga", tokens: 1 };
+    }
+    return gerarJson(pedido);
+  };
+  const { prova, leitura } = await montar(t, { paginasDoGabarito: [{ numero: 1, texto: marca }], gerar });
+  await (await leitura.iniciar(prova.id)).concluida;
+  const lida = await leitura.questoes(prova.id);
+  assert.match(prompts[0], /<<<QUESTÃO 1>>>\nAssinale a correta\./);
+  assert.deepEqual(lida.prova.leitura.gabarito.indicacao, { consideradas: 2, batem: [0, 2], indice: 1 });
+  assert.equal(lida.prova.leitura.gabarito.versao_escolhida, 1);
+  assert.deepEqual(lida.questoes.map((q) => q.gabarito), ["C", "A"]);
+  assert.equal(lida.prova.leitura.chamadas.length, 3);
+});
+
 test("leitura que falha grava o erro; reinício marca as interrompidas", async (t) => {
   const sequelize = await abrirBancoDeTeste(t);
   const provas = criarProvasService({ sequelize, dirProvas: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-provas-")), lerPaginas: async () => PAGINAS_DA_PROVA });
