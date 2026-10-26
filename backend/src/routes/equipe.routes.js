@@ -26,6 +26,11 @@ function criarRotasDaEquipe(equipeService) {
     res.json({ data: await equipeService.alterarMembro(req.equipe.id, req.params.membroId, req.body || {}, { quemAltera: req.usuario.id }) });
   });
 
+  // { editais: [ids] }: os editais da equipe que o aluno vê (etapa 4c). Substitui a lista anterior.
+  router.put("/membros/:membroId/editais", exigirOrientador, async (req, res) => {
+    res.json({ data: await equipeService.atribuirEditais(req.equipe.id, req.params.membroId, req.body || {}) });
+  });
+
   return router;
 }
 

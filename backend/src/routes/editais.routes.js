@@ -3,19 +3,42 @@
 const express = require("express");
 const multer = require("multer");
 const { AppError } = require("../shared/errors");
+const { exigirOrientador } = require("../shared/acesso");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
+
+// O que o aluno pode nos editais (etapa 4c): só ler a lista, o edital, o conteúdo programático, as páginas, o PDF e a
+// cobertura, e só dos editais atribuídos a ele. O resto (revisão, fontes, provas e qualquer alteração) é do orientador
+// e do professor.
+// "/" (a lista), "/:id", "/:id/conteudo", "/:id/cobertura", "/:id/arquivo" e "/:id/paginas/:numero".
+function eLeituraDoAluno(req) {
+  if (req.method !== "GET") return false;
+  const partes = req.path.split("/").filter(Boolean);
+  if (partes.length <= 1) return true;
+  if (partes.length === 2) return ["conteudo", "cobertura", "arquivo"].includes(partes[1]);
+  return partes.length === 3 && partes[1] === "paginas";
+}
+function leituraDoAluno(req, res, next) {
+  if (req.equipe.papel === "aluno" && !eLeituraDoAluno(req)) {
+    throw new AppError(403, "Só o orientador ou o professor da equipe pode fazer isso.");
+  }
+  next();
+}
+const alunoDa = (req) => (req.equipe.papel === "aluno" ? req.usuario.id : undefined);
 
 function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService, provasService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
-  // O edital e a prova da rota precisam ser da equipe (etapa 4a). Fora dela, 404, como se não existissem.
-  router.param("id", (req, res, next, id) => editalService.daEquipe(id, req.equipe.id).then(() => next()));
+  router.use(leituraDoAluno);
+
+  // O edital e a prova da rota precisam ser da equipe (etapa 4a) e, para o aluno, atribuídos a ele (etapa 4c). Fora
+  // disso, 404, como se não existissem.
+  router.param("id", (req, res, next, id) => editalService.daEquipe(id, req.equipe.id, { alunoId: alunoDa(req) }).then(() => next()));
   router.param("provaId", (req, res, next, id) => provasService.daEquipe(id, req.equipe.id).then(() => next()));
 
   router.get("/", async (req, res) => {
-    res.json({ data: await editalService.listar(req.equipe.id) });
+    res.json({ data: await editalService.listar(req.equipe.id, { alunoId: alunoDa(req) }) });
   });
 
   router.post("/", upload.single("arquivo"), async (req, res) => {
@@ -31,8 +54,11 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
   });
 
   // Dispara a extração dos metadados com a IA e responde na hora (202); a tela acompanha pelo status do edital.
+  // Extrair de novo por cima de uma revisão apaga a revisão: só o orientador confirma.
   router.post("/:id/extracao", async (req, res) => {
-    await extracaoService.iniciar(req.params.id, { confirmarPerdaDaRevisao: req.body?.confirmarPerdaDaRevisao === true });
+    const confirmarPerdaDaRevisao = req.body?.confirmarPerdaDaRevisao === true;
+    if (confirmarPerdaDaRevisao) exigirOrientador(req, res, () => {});
+    await extracaoService.iniciar(req.params.id, { confirmarPerdaDaRevisao });
     res.status(202).json({ data: await editalService.buscar(req.params.id) });
   });
 

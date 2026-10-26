@@ -20,7 +20,12 @@ const CAMPOS_DA_LISTA = [
 ];
 
 function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPaginas }) {
-  const { Edital, EditalPagina, EditalItem, ItemNorma } = sequelize.models;
+  const { Edital, EditalPagina, EditalItem, ItemNorma, EditalAluno } = sequelize.models;
+
+  // Os ids dos editais atribuídos ao aluno (etapa 4c): o aluno só vê esses.
+  async function atribuidosAo(alunoId) {
+    return (await EditalAluno.findAll({ where: { usuario_id: alunoId }, attributes: ["edital_id"], raw: true })).map((a) => a.edital_id);
+  }
 
   async function buscar(id) {
     const edital = eUuid(id)
@@ -30,17 +35,20 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     return edital;
   }
 
-  // Confere que o edital é da equipe; as rotas chamam antes de qualquer operação com o id (router.param).
-  async function daEquipe(id, equipeId) {
+  // Confere que o edital é da equipe; as rotas chamam antes de qualquer operação com o id (router.param). Para o
+  // aluno (alunoId), o edital também precisa estar atribuído a ele; senão, 404, como se não existisse.
+  async function daEquipe(id, equipeId, { alunoId } = {}) {
     const edital = eUuid(id) ? await Edital.findOne({ where: { id, equipe_id: equipeId }, attributes: ["id"], raw: true }) : null;
-    if (!edital) throw new AppError(404, "Edital não encontrado.");
+    const atribuido = edital && (!alunoId || (await EditalAluno.count({ where: { edital_id: id, usuario_id: alunoId } })) > 0);
+    if (!atribuido) throw new AppError(404, "Edital não encontrado.");
   }
 
   // Cada edital vem com o andamento (andamento.js): a tela de editais mostra a situação e a casca do edital, os
   // pendentes nas abas. Os metadados só entram no cálculo; não vão na resposta.
-  async function listar(equipeId) {
+  // Para o aluno (alunoId), só os editais atribuídos a ele.
+  async function listar(equipeId, { alunoId } = {}) {
     const editais = await Edital.findAll({
-      where: { equipe_id: equipeId },
+      where: { equipe_id: equipeId, ...(alunoId && { id: await atribuidosAo(alunoId) }) },
       attributes: [...CAMPOS_DA_LISTA, "metadados"],
       order: [["created_at", "DESC"]],
       raw: true

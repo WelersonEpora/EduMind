@@ -16,6 +16,8 @@ const { PAPEIS } = require("../models/membro");
 //   conta é da pessoa, não da equipe. Sem essa trava, quem orienta uma equipe poderia incluir o e-mail de alguém de
 //   outra equipe e trocar a senha dela. A própria conta se muda em Minha conta, com a senha atual.
 // - O administrador da plataforma cria as equipes, cada uma já com o seu orientador.
+// - O aluno vê só os editais que o orientador atribui a ele (etapa 4c, edital_aluno); a lista de membros traz os
+//   editais atribuídos a cada aluno.
 
 const textoObrigatorio = (valor, nome) => {
   const texto = typeof valor === "string" ? valor.trim() : "";
@@ -35,7 +37,7 @@ function papelValido(valor) {
 }
 
 function criarEquipeService({ sequelize }) {
-  const { Usuario, Equipe, Membro } = sequelize.models;
+  const { Usuario, Equipe, Membro, Edital, EditalAluno } = sequelize.models;
 
   // Os usuários (dentre os ids) que também estão em alguma outra equipe, ativos ou não.
   async function emOutrasEquipes(equipeId, usuarioIds, transaction) {
@@ -56,6 +58,12 @@ function criarEquipeService({ sequelize }) {
       order: [["ativo", "DESC"], [{ model: Usuario, as: "usuario" }, "nome", "ASC"]]
     });
     const foraDaqui = await emOutrasEquipes(equipeId, lista.map((m) => m.usuario.id));
+    const atribuidos = await EditalAluno.findAll({
+      where: { usuario_id: lista.filter((m) => m.papel === "aluno").map((m) => m.usuario.id) },
+      include: [{ model: Edital, as: "edital", where: { equipe_id: equipeId }, attributes: [] }],
+      attributes: ["usuario_id", "edital_id"],
+      raw: true
+    });
     return lista.map((m) => ({
       id: m.id,
       usuario_id: m.usuario.id,
@@ -64,6 +72,7 @@ function criarEquipeService({ sequelize }) {
       papel: m.papel,
       ativo: m.ativo,
       conta_editavel: !m.usuario.admin && !foraDaqui.has(m.usuario.id),
+      ...(m.papel === "aluno" && { editais: atribuidos.filter((a) => a.usuario_id === m.usuario.id).map((a) => a.edital_id) }),
       created_at: m.created_at
     }));
   }
@@ -142,6 +151,24 @@ function criarEquipeService({ sequelize }) {
     return (await membros(equipeId)).find((m) => m.id === membroId);
   }
 
+  // Os editais da equipe atribuídos a um aluno (etapa 4c): a lista enviada substitui a anterior. Só para aluno; os
+  // editais precisam ser da equipe. As atribuições a editais de outras equipes (o aluno em mais de uma) não mudam.
+  async function atribuirEditais(equipeId, membroId, { editais } = {}) {
+    if (!Array.isArray(editais) || !editais.every(eUuid)) throw new AppError(400, "Indique a lista de editais.");
+    const ids = [...new Set(editais)];
+    await sequelize.transaction(async (transaction) => {
+      const membro = eUuid(membroId) ? await Membro.findOne({ where: { id: membroId, equipe_id: equipeId }, raw: true, transaction }) : null;
+      if (!membro) throw new AppError(404, "Membro não encontrado nesta equipe.");
+      if (membro.papel !== "aluno") throw new AppError(400, "Só se atribuem editais a alunos.");
+      const daEquipe = await Edital.findAll({ where: { id: ids, equipe_id: equipeId }, attributes: ["id"], raw: true, transaction });
+      if (daEquipe.length !== ids.length) throw new AppError(404, "Edital não encontrado nesta equipe.");
+      const todosDaEquipe = (await Edital.findAll({ where: { equipe_id: equipeId }, attributes: ["id"], raw: true, transaction })).map((e) => e.id);
+      await EditalAluno.destroy({ where: { usuario_id: membro.usuario_id, edital_id: todosDaEquipe }, transaction });
+      await EditalAluno.bulkCreate(ids.map((id) => ({ edital_id: id, usuario_id: membro.usuario_id })), { transaction });
+    });
+    return (await membros(equipeId)).find((m) => m.id === membroId);
+  }
+
   // Administrador: todas as equipes, com os orientadores e quantos membros ativos cada uma tem.
   async function listarEquipes() {
     const equipes = await Equipe.findAll({ attributes: ["id", "nome", "created_at"], order: [["nome", "ASC"]], raw: true });
@@ -169,7 +196,7 @@ function criarEquipeService({ sequelize }) {
     return { equipe: await equipe(id), contaJaExistia };
   }
 
-  return { equipe, membros, renomear, incluirMembro, alterarMembro, listarEquipes, criarEquipe };
+  return { equipe, membros, renomear, incluirMembro, alterarMembro, atribuirEditais, listarEquipes, criarEquipe };
 }
 
 module.exports = { criarEquipeService };

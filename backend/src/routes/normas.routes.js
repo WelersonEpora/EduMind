@@ -8,7 +8,8 @@ const { exigirOrientadorOuProfessor } = require("../shared/acesso");
 const TAMANHO_MAXIMO_ARQUIVO = 30 * 1024 * 1024;
 
 // Biblioteca de normas (etapa 2a-1): URL oficial e upload manual das versões. É de todos, não da equipe (etapa 4a):
-// só a lista de editais que citam cada norma vem filtrada pela equipe.
+// só a lista de editais que citam cada norma vem filtrada pela equipe. Ler: qualquer membro; incluir e mudar:
+// orientador ou professor (etapa 4c).
 function criarRotasDeNormas(fontesService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_ARQUIVO } });
@@ -33,15 +34,15 @@ function criarRotasDeNormas(fontesService) {
   });
 
   // A busca na web da IA, só para achar a URL oficial. Pode levar dezenas de segundos.
-  router.post("/:id/buscar-url", async (req, res) => {
+  router.post("/:id/buscar-url", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await fontesService.buscarUrl(req.params.id) });
   });
 
-  router.patch("/:id", async (req, res) => {
+  router.patch("/:id", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await fontesService.definirUrl(req.params.id, req.body || {}) });
   });
 
-  router.post("/:id/versoes", upload.single("arquivo"), async (req, res) => {
+  router.post("/:id/versoes", exigirOrientadorOuProfessor, upload.single("arquivo"), async (req, res) => {
     if (!req.file) throw new AppError(400, "Envie o arquivo no campo 'arquivo'.");
     // multer entrega o nome em latin1; o navegador manda UTF-8.
     const nomeArquivo = Buffer.from(req.file.originalname, "latin1").toString("utf8");
@@ -50,7 +51,7 @@ function criarRotasDeNormas(fontesService) {
   });
 
   // Divide de novo a versão em artigos.
-  router.post("/:id/versoes/:versaoId/processar", async (req, res) => {
+  router.post("/:id/versoes/:versaoId/processar", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await fontesService.processarVersao(req.params.id, req.params.versaoId) });
   });
 

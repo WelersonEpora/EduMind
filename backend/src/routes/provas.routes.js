@@ -3,6 +3,7 @@
 const express = require("express");
 const multer = require("multer");
 const { AppError } = require("../shared/errors");
+const { exigirOrientador, exigirOrientadorOuProfessor } = require("../shared/acesso");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
@@ -13,6 +14,9 @@ const nomeDoArquivo = (file) => Buffer.from(file.originalname, "latin1").toStrin
 function criarRotasDeProvas(provasService, leituraService, classificacaoService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
+
+  // Provas são do orientador e do professor (etapa 4c); o aluno vai usá-las no simulador, que ainda não existe.
+  router.use(exigirOrientadorOuProfessor);
 
   // A prova da rota precisa ser da equipe (etapa 4a). Fora dela, 404, como se não existisse.
   router.param("id", (req, res, next, id) => provasService.daEquipe(id, req.equipe.id).then(() => next()));
@@ -45,7 +49,8 @@ function criarRotasDeProvas(provasService, leituraService, classificacaoService)
     res.json({ data: await provasService.atualizar(req.params.id, req.body || {}) });
   });
 
-  router.delete("/:id", async (req, res) => {
+  // Excluir apaga a prova, as questões e a classificação: só o orientador.
+  router.delete("/:id", exigirOrientador, async (req, res) => {
     res.json({ data: await provasService.excluir(req.params.id) });
   });
 

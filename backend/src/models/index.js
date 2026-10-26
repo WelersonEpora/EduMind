@@ -19,10 +19,13 @@ module.exports = function definirModelos(sequelize) {
   const Usuario = require("./usuario")(sequelize);
   const Equipe = require("./equipe")(sequelize);
   const Membro = require("./membro")(sequelize);
+  const EditalAluno = require("./editalAluno")(sequelize);
 
   Membro.belongsTo(Usuario, { foreignKey: "usuario_id", as: "usuario" });
   Membro.belongsTo(Equipe, { foreignKey: "equipe_id", as: "equipe" });
   Usuario.hasMany(Membro, { foreignKey: "usuario_id", as: "vinculos" });
+
+  EditalAluno.belongsTo(Edital, { foreignKey: "edital_id", as: "edital" });
 
   Edital.hasMany(EditalPagina, { foreignKey: "edital_id", as: "paginas" });
   EditalPagina.belongsTo(Edital, { foreignKey: "edital_id" });
