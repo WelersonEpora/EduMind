@@ -9,6 +9,9 @@ import CoberturaView from '../views/CoberturaView.vue'
 import ProvasView from '../views/ProvasView.vue'
 import QuestoesView from '../views/QuestoesView.vue'
 import LoginView from '../views/LoginView.vue'
+import EquipeView from '../views/EquipeView.vue'
+import ContaView from '../views/ContaView.vue'
+import AdminEquipesView from '../views/AdminEquipesView.vue'
 import { useSessao } from '../composables/useSessao'
 import { destinoSeguro } from './destino'
 
@@ -27,7 +30,11 @@ const router = createRouter({
     { path: '/editais/:id/provas', name: 'provas', component: ProvasView, meta: { larguraTotal: true } },
     { path: '/provas/:provaId/questoes', name: 'questoes', component: QuestoesView, meta: { larguraTotal: true } },
     { path: '/normas', name: 'normas', component: BibliotecaView },
-    { path: '/normas/:id', name: 'norma', component: NormaView }
+    { path: '/normas/:id', name: 'norma', component: NormaView },
+    { path: '/equipe', name: 'equipe', component: EquipeView },
+    // semEquipe: abre mesmo para quem não está em nenhuma equipe (o administrador, por exemplo).
+    { path: '/conta', name: 'conta', component: ContaView, meta: { semEquipe: true } },
+    { path: '/admin/equipes', name: 'admin-equipes', component: AdminEquipesView, meta: { semEquipe: true, soAdmin: true } }
   ]
 })
 
@@ -44,6 +51,9 @@ router.beforeEach(async (to) => {
   const logado = Boolean(sessao.usuario.value)
   if (to.meta.publica) return logado ? destinoSeguro(to.query.voltar) : true
   if (!logado) return { name: 'entrar', query: to.fullPath === '/' ? {} : { voltar: to.fullPath } }
+  if (to.meta.soAdmin && !sessao.usuario.value.admin) return { name: 'editais' }
+  // O administrador sem equipe começa pela administração.
+  if (to.name === 'editais' && !sessao.equipeAtual.value && sessao.usuario.value.admin) return { name: 'admin-equipes' }
   return true
 })
 

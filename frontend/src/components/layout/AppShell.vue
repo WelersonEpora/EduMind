@@ -131,7 +131,7 @@ async function sairDoSistema() {
         <span v-else-if="equipeAtual" class="shell__equipe-nome" :title="NOMES_DOS_PAPEIS[equipeAtual.papel]">
           <i class="pi pi-users"></i>{{ equipeAtual.nome }}
         </span>
-        <span class="shell__nome" :title="usuario?.email">{{ usuario?.nome }}</span>
+        <router-link :to="{ name: 'conta' }" class="shell__nome" :title="`${usuario?.email} · minha conta`">{{ usuario?.nome }}</router-link>
         <button type="button" class="shell__sair" title="Sair" aria-label="Sair" @click="sairDoSistema">
           <i class="pi pi-sign-out"></i>
         </button>
@@ -186,10 +186,29 @@ async function sairDoSistema() {
         </span>
       </template>
 
+      <div class="shell__grupo"><span class="shell__rotulo">Equipe</span></div>
+      <router-link
+        v-if="equipeAtual"
+        to="/equipe"
+        class="shell__item"
+        :class="{ 'shell__item--ativo': route.name === 'equipe' }"
+        title="Membros da equipe"
+        @click="fecharGaveta"
+      >
+        <i class="pi pi-users"></i><span class="shell__rotulo">Membros</span>
+      </router-link>
+      <router-link
+        v-if="usuario?.admin"
+        to="/admin/equipes"
+        class="shell__item"
+        :class="{ 'shell__item--ativo': route.name === 'admin-equipes' }"
+        title="Equipes da plataforma"
+        @click="fecharGaveta"
+      >
+        <i class="pi pi-sitemap"></i><span class="shell__rotulo">Equipes da plataforma</span>
+      </router-link>
+
       <div class="shell__grupo"><span class="shell__rotulo">Próximas etapas</span></div>
-      <span class="shell__item shell__item--desativado" title="Fora do escopo do MVP">
-        <i class="pi pi-users"></i><span class="shell__rotulo">Alunos</span><em class="shell__etapa">depois</em>
-      </span>
       <span class="shell__item shell__item--desativado" title="Fora do escopo do MVP">
         <i class="pi pi-list-check"></i><span class="shell__rotulo">Provas e questões</span><em class="shell__etapa">depois</em>
       </span>
@@ -295,6 +314,8 @@ async function sairDoSistema() {
 }
 .shell__nome {
   font-weight: 600;
+  color: var(--foreground);
+  text-decoration: none;
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;

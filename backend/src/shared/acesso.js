@@ -35,4 +35,16 @@ function exigirEquipe({ authService }) {
   };
 }
 
-module.exports = { exigirLogin, exigirEquipe };
+// Só o orientador da equipe da requisição (depois de exigirEquipe).
+function exigirOrientador(req, res, next) {
+  if (req.equipe?.papel !== "orientador") throw new AppError(403, "Só o orientador da equipe pode fazer isso.");
+  next();
+}
+
+// Só o administrador da plataforma (depois de exigirLogin). Não depende de equipe.
+function exigirAdmin(req, res, next) {
+  if (!req.usuario?.admin) throw new AppError(403, "Só o administrador da plataforma pode fazer isso.");
+  next();
+}
+
+module.exports = { exigirLogin, exigirEquipe, exigirOrientador, exigirAdmin };

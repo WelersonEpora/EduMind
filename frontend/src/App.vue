@@ -13,10 +13,10 @@ const { usuario, equipeAtual } = useSessao()
   <Toast position="bottom-right" />
   <router-view v-if="route.meta.publica" />
   <AppShell v-else-if="usuario">
-    <Message v-if="!equipeAtual" severity="warn">
+    <Message v-if="!equipeAtual && !route.meta.semEquipe" severity="warn">
       Você ainda não faz parte de nenhuma equipe. Peça ao orientador que inclua você na equipe dele.
     </Message>
     <!-- :key — trocar de equipe remonta a tela, que busca de novo os dados da equipe nova. -->
-    <router-view v-else :key="equipeAtual.id" />
+    <router-view v-else :key="equipeAtual?.id || 'sem-equipe'" />
   </AppShell>
 </template>

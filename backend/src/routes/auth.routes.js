@@ -26,6 +26,12 @@ function criarRotasDeAuth({ authService, sessao }) {
     res.json({ data: await authService.perfil(req.usuario.id) });
   });
 
+  // { atual, nova }. Limitado como o login: a senha atual não pode virar um meio de testar senhas.
+  router.put("/senha", limitarLogin, exigirLogin({ sessao, authService }), async (req, res) => {
+    await authService.trocarSenha(req.usuario.id, req.body || {});
+    res.status(204).end();
+  });
+
   return router;
 }
 

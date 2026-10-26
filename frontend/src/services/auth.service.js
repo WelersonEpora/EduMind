@@ -21,3 +21,7 @@ export async function buscarPerfil() {
     throw erro
   }
 }
+
+export async function trocarSenha(atual, nova) {
+  await http.put('/api/v1/auth/senha', { atual, nova })
+}

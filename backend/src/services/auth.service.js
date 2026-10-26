@@ -56,7 +56,16 @@ function criarAuthService({ sequelize }) {
     return { ...usuario, equipes: await equipesDo(usuario.id) };
   }
 
-  return { entrar, usuarioAtivo, equipesDo, papelNaEquipe, perfil };
+  // O próprio usuário troca a senha (a inicial é passada por quem o incluiu). Exige a senha atual.
+  async function trocarSenha(usuarioId, { atual, nova } = {}) {
+    const usuario = await Usuario.findByPk(usuarioId, { attributes: ["id", "senha_hash"] });
+    if (!usuario || typeof atual !== "string" || !(await senha.conferir(atual, usuario.senha_hash))) {
+      throw new AppError(400, "A senha atual não confere.");
+    }
+    await usuario.update({ senha_hash: await senha.gerarHash(senha.validar(nova)) });
+  }
+
+  return { entrar, usuarioAtivo, equipesDo, papelNaEquipe, perfil, trocarSenha };
 }
 
 module.exports = { criarAuthService, normalizarEmail };

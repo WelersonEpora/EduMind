@@ -7,9 +7,12 @@ const pinoHttp = require("pino-http");
 const env = require("./config/env");
 const logger = require("./shared/logger");
 const { criarSessao } = require("./shared/sessao");
-const { exigirLogin, exigirEquipe } = require("./shared/acesso");
+const { exigirLogin, exigirEquipe, exigirAdmin } = require("./shared/acesso");
 const { criarAuthService } = require("./services/auth.service");
 const { criarRotasDeAuth } = require("./routes/auth.routes");
+const { criarEquipeService } = require("./services/equipe.service");
+const { criarRotasDaEquipe } = require("./routes/equipe.routes");
+const { criarRotasDeAdmin } = require("./routes/admin.routes");
 const { naoEncontrado, tratarErro } = require("./shared/middlewares");
 const { criarEditalService } = require("./services/edital.service");
 const { criarExtracaoService } = require("./services/extracao.service");
@@ -47,8 +50,12 @@ function criarApp({
 
   // Login (etapa 4a): fora de /auth, toda a API exige sessão e trabalha dentro de uma equipe (req.equipe).
   const authService = criarAuthService({ sequelize });
+  const equipeService = criarEquipeService({ sequelize });
   app.use("/api/v1/auth", criarRotasDeAuth({ authService, sessao }));
+  // A administração vem antes da exigência de equipe: o administrador pode não estar em nenhuma.
+  app.use("/api/v1/admin", exigirLogin({ sessao, authService }), exigirAdmin, criarRotasDeAdmin(equipeService));
   app.use("/api/v1", exigirLogin({ sessao, authService }), exigirEquipe({ authService }));
+  app.use("/api/v1/equipe", criarRotasDaEquipe(equipeService));
 
   app.use(
     "/api/v1/editais",
