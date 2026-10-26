@@ -1,21 +1,31 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
-import { buscarResumoDoSimulador, iniciarTreino, responderQuestao } from '../services/simulador.service'
+import QuestaoSimulada from '../components/simulador/QuestaoSimulada.vue'
+import ArtigosDaQuestao from '../components/simulador/ArtigosDaQuestao.vue'
+import TabelaDeResultado from '../components/simulador/TabelaDeResultado.vue'
+import {
+  buscarResumoDoSimulador,
+  iniciarTreino,
+  responderQuestao,
+  iniciarProvaCompleta,
+  desistirDaProvaCompleta
+} from '../services/simulador.service'
 import { useSessao } from '../composables/useSessao'
-import { textoCorrido } from '../utils/formatar'
-import { partesDoArtigo } from '../utils/normas'
+import { duracaoLegivel } from '../utils/formatar'
 
-// Simulador, treino por disciplina (etapa 5a). Três momentos: escolher as disciplinas e a quantidade, responder uma
-// questão por vez (a correção vem do servidor, com o texto dos artigos que a questão cobra) e ver o resultado, com a
-// opção de refazer as erradas.
+// Simulador (etapas 5a e 5b). No início, o treino por disciplina e a prova completa. O treino tem três momentos:
+// escolher as disciplinas e a quantidade, responder uma questão por vez (a correção vem do servidor, com o texto dos
+// artigos que a questão cobra) e ver o resultado, com a opção de refazer as erradas. A prova completa abre na sua
+// própria tela (SimuladoView).
 
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
 const { eAluno } = useSessao()
 
@@ -52,6 +62,41 @@ watch(() => route.params.id, carregar, { immediate: true })
 
 function alternarTodas() {
   escolhidas.value = escolhidas.value.length === resumo.value.disciplinas.length ? [] : resumo.value.disciplinas.map((d) => d.id)
+}
+
+// Prova completa
+const nomeDaProva = (prova) => `${prova.banca || 'Banca não informada'} ${prova.ano || ''}`.trim()
+const provaEmAndamento = computed(() => {
+  const andamento = resumo.value?.em_andamento
+  return andamento ? resumo.value.provas.find((p) => p.id === andamento.prova_id) || null : null
+})
+const iniciando = ref(null)
+
+function abrirProva(simuladoId) {
+  router.push({ name: 'simulado', params: { id: route.params.id, simuladoId } })
+}
+
+async function fazerProva(prova) {
+  const aviso = prova.questoes < prova.total ? `\n\nSó ${prova.questoes} das ${prova.total} questões estão disponíveis; as outras ainda estão em revisão.` : ''
+  if (!window.confirm(`Começar a prova ${nomeDaProva(prova)}? Você terá ${duracaoLegivel(prova.duracao_minutos)} e o relógio não para.${aviso}`)) return
+  iniciando.value = prova.id
+  try {
+    abrirProva((await iniciarProvaCompleta(route.params.id, prova.id)).id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não foi possível começar', detail: e.message, life: 6000 })
+  } finally {
+    iniciando.value = null
+  }
+}
+
+async function desistir() {
+  if (!window.confirm('Desistir da prova em andamento? As respostas dela são descartadas.')) return
+  try {
+    await desistirDaProvaCompleta(route.params.id, resumo.value.em_andamento.id)
+    await carregar(route.params.id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não foi possível desistir', detail: e.message, life: 6000 })
+  }
 }
 
 // Treino
@@ -107,19 +152,6 @@ function proxima() {
   window.scrollTo({ top: 0 })
 }
 
-function classeDaAlternativa(letra) {
-  if (!correcao.value) return { 'alternativa--escolhida': escolha.value === letra }
-  return {
-    'alternativa--certa': letra === correcao.value.gabarito,
-    'alternativa--errada': letra === escolha.value && !correcao.value.acertou
-  }
-}
-
-const AVISO_DE_MUDANCA = {
-  depois: 'Este artigo foi alterado depois desta prova: pela lei de hoje, a resposta pode ser outra.',
-  talvez: 'Este artigo foi alterado no ano desta prova: confira se a resposta ainda vale.'
-}
-
 // Fim
 const porDisciplina = computed(() => {
   const mapa = new Map()
@@ -139,12 +171,12 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
 <template>
   <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
 
-  <!-- Início: disciplinas e quantidade -->
+  <!-- Início: treino por disciplina e prova completa -->
   <template v-if="resumo && momento === 'inicio'">
     <div class="pagina-cabecalho">
       <p>
-        Treine com as questões das provas anteriores da banca, separadas pelas disciplinas do edital. Depois de responder,
-        você vê a resposta certa e o texto oficial dos artigos que a questão cobra.
+        Treine com as questões das provas anteriores da banca, separadas pelas disciplinas do edital, ou faça uma prova
+        inteira com o tempo da prova real.
       </p>
     </div>
 
@@ -156,35 +188,94 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
       </template>
     </Message>
 
-    <section v-else class="painel inicio">
-      <div class="painel__cabecalho">
-        <h2>Treino por disciplina</h2>
-        <Button :label="escolhidas.length === resumo.disciplinas.length ? 'Desmarcar todas' : 'Marcar todas'" size="small" text @click="alternarTodas" />
-      </div>
-      <div class="painel__corpo">
-        <ul class="disciplinas">
-          <li v-for="disciplina in resumo.disciplinas" :key="disciplina.id">
-            <label>
-              <Checkbox v-model="escolhidas" :value="disciplina.id" />
-              <span class="disciplinas__nome">{{ disciplina.texto }}</span>
-              <span class="mono disciplinas__total">{{ disciplina.questoes }}</span>
-            </label>
-          </li>
-        </ul>
-        <div class="comecar">
-          <div class="quantidade">
-            <span class="rotulo">Questões</span>
-            <SelectButton v-model="quantidade" :options="OPCOES_DE_QUANTIDADE" option-label="rotulo" option-value="valor" :allow-empty="false" />
-          </div>
-          <Button :label="`Começar treino (${vaiTer})`" icon="pi pi-play" :disabled="vaiTer === 0" @click="iniciar" />
+    <template v-else>
+      <Message v-if="resumo.em_andamento" severity="warn" :closable="false" class="em-andamento">
+        <span>
+          Você tem uma prova em andamento<template v-if="provaEmAndamento">: <b>{{ nomeDaProva(provaEmAndamento) }}</b></template>.
+          O relógio continua correndo.
+        </span>
+        <span class="em-andamento__botoes">
+          <Button label="Continuar a prova" icon="pi pi-arrow-right" icon-pos="right" size="small" @click="abrirProva(resumo.em_andamento.id)" />
+          <Button label="Desistir" size="small" text severity="secondary" @click="desistir" />
+        </span>
+      </Message>
+
+      <section class="painel inicio">
+        <div class="painel__cabecalho">
+          <h2>Treino por disciplina</h2>
+          <Button :label="escolhidas.length === resumo.disciplinas.length ? 'Desmarcar todas' : 'Marcar todas'" size="small" text @click="alternarTodas" />
         </div>
-        <p class="nota">
-          Questões de
-          <template v-for="(prova, i) in resumo.provas" :key="prova.id">{{ prova.banca }} {{ prova.ano }}<template v-if="i < resumo.provas.length - 1">, </template></template>.
-          <template v-if="provasNaoOficiais">O gabarito de {{ provasNaoOficiais === resumo.provas.length ? 'todas elas' : `${provasNaoOficiais} delas` }} não é o oficial definitivo.</template>
-        </p>
-      </div>
-    </section>
+        <div class="painel__corpo">
+          <p class="explicacao">Uma questão por vez. Depois de responder, você vê a resposta certa e o texto oficial dos artigos que a questão cobra.</p>
+          <ul class="disciplinas">
+            <li v-for="disciplina in resumo.disciplinas" :key="disciplina.id">
+              <label>
+                <Checkbox v-model="escolhidas" :value="disciplina.id" />
+                <span class="disciplinas__nome">{{ disciplina.texto }}</span>
+                <span class="mono disciplinas__total">{{ disciplina.questoes }}</span>
+              </label>
+            </li>
+          </ul>
+          <div class="comecar">
+            <div class="quantidade">
+              <span class="rotulo">Questões</span>
+              <SelectButton v-model="quantidade" :options="OPCOES_DE_QUANTIDADE" option-label="rotulo" option-value="valor" :allow-empty="false" />
+            </div>
+            <Button :label="`Começar treino (${vaiTer})`" icon="pi pi-play" :disabled="vaiTer === 0" @click="iniciar" />
+          </div>
+        </div>
+      </section>
+
+      <section class="painel provas-completas">
+        <div class="painel__cabecalho"><h2>Prova completa</h2></div>
+        <div class="painel__corpo">
+          <p class="explicacao">
+            Uma prova anterior inteira, na ordem dela e com o tempo da prova real. Você pode pular questões e marcar para
+            voltar depois; a correção sai só na entrega.
+          </p>
+          <table class="tabela-provas">
+            <thead>
+              <tr>
+                <th>Prova</th>
+                <th>Questões</th>
+                <th>Tempo</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="prova in resumo.provas" :key="prova.id">
+                <td><b>{{ nomeDaProva(prova) }}</b></td>
+                <td>
+                  <span class="mono">{{ prova.questoes }}</span>
+                  <span v-if="prova.questoes < prova.total" class="discreto"> de {{ prova.total }} (as outras estão em revisão)</span>
+                </td>
+                <td>
+                  <span class="mono">{{ duracaoLegivel(prova.duracao_minutos) }}</span>
+                  <span v-if="prova.duracao_estimada" class="discreto" title="O orientador ainda não informou o tempo da prova real: 3 minutos por questão"> estimado</span>
+                </td>
+                <td class="acao">
+                  <Button
+                    label="Fazer a prova"
+                    icon="pi pi-stopwatch"
+                    size="small"
+                    outlined
+                    :loading="iniciando === prova.id"
+                    :disabled="Boolean(resumo.em_andamento) || Boolean(iniciando)"
+                    @click="fazerProva(prova)"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="nota">
+        Questões de
+        <template v-for="(prova, i) in resumo.provas" :key="prova.id">{{ nomeDaProva(prova) }}<template v-if="i < resumo.provas.length - 1">, </template></template>.
+        <template v-if="provasNaoOficiais">O gabarito de {{ provasNaoOficiais === resumo.provas.length ? 'todas elas' : `${provasNaoOficiais} delas` }} não é o oficial definitivo.</template>
+      </p>
+    </template>
   </template>
 
   <!-- Uma questão por vez -->
@@ -196,70 +287,27 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
       <Button label="Encerrar" size="small" text severity="secondary" @click="momento = resultados.length ? 'fim' : 'inicio'" />
     </div>
 
-    <article class="painel questao">
-      <div class="painel__cabecalho">
-        <span class="questao__origem">
-          {{ questao.disciplina.texto }} · {{ questao.prova.banca }} {{ questao.prova.ano }}, questão {{ questao.numero }}
-        </span>
-        <span v-if="!questao.prova.gabarito_oficial" class="questao__aviso" title="O gabarito desta prova não é o oficial definitivo">gabarito não oficial</span>
+    <QuestaoSimulada
+      v-model:escolha="escolha"
+      :questao="questao"
+      :origem="`${questao.disciplina.texto} · ${questao.prova.banca} ${questao.prova.ano}, questão ${questao.numero}`"
+      :gabarito-nao-oficial="!questao.prova.gabarito_oficial"
+      :gabarito="correcao?.gabarito || null"
+    >
+      <div class="acoes">
+        <Button v-if="!correcao" label="Responder" icon="pi pi-check" :disabled="!escolha" :loading="respondendo" @click="responder" />
+        <template v-else>
+          <span class="veredito" :class="correcao.acertou ? 'veredito--certo' : 'veredito--errado'">
+            <i class="pi" :class="correcao.acertou ? 'pi-check-circle' : 'pi-times-circle'"></i>
+            {{ correcao.acertou ? 'Você acertou.' : `Resposta certa: ${correcao.gabarito}.` }}
+          </span>
+          <Button :label="ultima ? 'Ver resultado' : 'Próxima questão'" icon="pi pi-arrow-right" icon-pos="right" @click="proxima" />
+        </template>
       </div>
-      <div class="painel__corpo">
-        <div v-if="questao.texto_apoio" class="documento apoio">{{ textoCorrido(questao.texto_apoio) }}</div>
-        <p class="enunciado">{{ textoCorrido(questao.enunciado) }}</p>
-
-        <div class="alternativas" role="radiogroup" aria-label="Alternativas">
-          <button
-            v-for="alternativa in questao.alternativas"
-            :key="alternativa.letra"
-            type="button"
-            role="radio"
-            :aria-checked="escolha === alternativa.letra"
-            class="alternativa"
-            :class="classeDaAlternativa(alternativa.letra)"
-            :disabled="Boolean(correcao)"
-            @click="escolha = alternativa.letra"
-          >
-            <span class="alternativa__letra">{{ alternativa.letra }}</span>
-            <span>{{ textoCorrido(alternativa.texto) }}</span>
-          </button>
-        </div>
-
-        <div class="acoes">
-          <Button v-if="!correcao" label="Responder" icon="pi pi-check" :disabled="!escolha" :loading="respondendo" @click="responder" />
-          <template v-else>
-            <span class="veredito" :class="correcao.acertou ? 'veredito--certo' : 'veredito--errado'">
-              <i class="pi" :class="correcao.acertou ? 'pi-check-circle' : 'pi-times-circle'"></i>
-              {{ correcao.acertou ? 'Você acertou.' : `Resposta certa: ${correcao.gabarito}.` }}
-            </span>
-            <Button :label="ultima ? 'Ver resultado' : 'Próxima questão'" icon="pi pi-arrow-right" icon-pos="right" @click="proxima" />
-          </template>
-        </div>
-      </div>
-    </article>
+    </QuestaoSimulada>
 
     <!-- Os artigos que a questão cobra, depois da resposta -->
-    <section v-if="correcao && correcao.artigos.length" class="painel artigos">
-      <div class="painel__cabecalho"><h2>O que a lei diz</h2></div>
-      <div class="painel__corpo">
-        <div v-for="artigo in correcao.artigos" :key="`${artigo.norma.id}-${artigo.numero}`" class="artigo">
-          <div class="artigo__titulo">
-            <b>{{ artigo.norma.nome }}, art. {{ artigo.numero }}</b>
-            <span v-if="artigo.papel === 'relacionado'" class="pendente">relacionado</span>
-            <span v-if="artigo.revogado" class="questao__aviso">revogado</span>
-          </div>
-          <Message v-if="artigo.mudou_depois_da_prova" severity="warn" size="small" :closable="false">
-            {{ AVISO_DE_MUDANCA[artigo.mudou_depois_da_prova] }}
-          </Message>
-          <p v-if="artigo.texto" class="documento artigo__texto">
-            <template v-for="(parte, i) in partesDoArtigo(artigo.texto)" :key="i">
-              <span v-if="parte.nota" class="nota-de-redacao">{{ parte.texto }}</span>
-              <template v-else>{{ parte.texto }}</template>
-            </template>
-          </p>
-          <p v-else class="pendente">Este artigo não foi encontrado no texto da norma guardado no EduMind.</p>
-        </div>
-      </div>
-    </section>
+    <ArtigosDaQuestao v-if="correcao" :artigos="correcao.artigos" />
   </template>
 
   <!-- Resultado -->
@@ -271,18 +319,7 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
           <b>{{ acertos }}</b> de {{ resultados.length }} {{ resultados.length === 1 ? 'questão' : 'questões' }}
           <span class="mono">({{ percentual(acertos, resultados.length) }}%)</span>
         </p>
-        <table class="tabela-resultado">
-          <thead>
-            <tr><th>Disciplina</th><th class="numero">Acertos</th><th class="numero">%</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="linha in porDisciplina" :key="linha.disciplina">
-              <td>{{ linha.disciplina }}</td>
-              <td class="numero">{{ linha.acertos }} de {{ linha.total }}</td>
-              <td class="numero">{{ percentual(linha.acertos, linha.total) }}%</td>
-            </tr>
-          </tbody>
-        </table>
+        <TabelaDeResultado :linhas="porDisciplina" />
         <div class="acoes">
           <Button v-if="erradas.length" :label="`Refazer as erradas (${erradas.length})`" icon="pi pi-replay" @click="comecar(erradas)" />
           <Button label="Novo treino" icon="pi pi-plus" :severity="erradas.length ? 'secondary' : undefined" :outlined="Boolean(erradas.length)" @click="momento = 'inicio'" />
@@ -293,6 +330,29 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
 </template>
 
 <style scoped>
+.em-andamento {
+  margin-bottom: 1.25rem;
+}
+.em-andamento :deep(.p-message-text) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+.em-andamento__botoes {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+.provas-completas {
+  margin-top: 1.25rem;
+}
+.explicacao {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--muted-foreground);
+}
 .disciplinas {
   margin: 0 0 1.25rem;
   padding: 0;
@@ -325,6 +385,31 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
   display: grid;
   gap: 0.35rem;
 }
+.tabela-provas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.tabela-provas th {
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.tabela-provas td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.tabela-provas .acao {
+  text-align: right;
+}
+.discreto {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
 .nota {
   margin: 1rem 0 0;
   font-size: 0.8rem;
@@ -352,92 +437,6 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
   transition: width 0.2s;
 }
 
-.questao__origem {
-  font-size: 0.85rem;
-  color: var(--muted-foreground);
-}
-.questao__aviso {
-  font-size: 0.72rem;
-  color: var(--warning-foreground);
-  background: color-mix(in oklch, var(--warning) 22%, transparent);
-  border-radius: 999px;
-  padding: 0.05rem 0.55rem;
-}
-.apoio {
-  margin-bottom: 1rem;
-  white-space: pre-line;
-}
-.enunciado {
-  margin: 0 0 1rem;
-  font-size: 1rem;
-  line-height: 1.6;
-  white-space: pre-line;
-}
-.alternativas {
-  display: grid;
-  gap: 0.5rem;
-}
-.alternativa {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--card);
-  color: var(--foreground);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.alternativa:hover:not(:disabled) {
-  border-color: var(--primary);
-}
-.alternativa:disabled {
-  cursor: default;
-}
-.alternativa__letra {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-.alternativa--escolhida {
-  border-color: var(--primary);
-  background: var(--accent);
-}
-.alternativa--escolhida .alternativa__letra {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-}
-.alternativa--certa {
-  border-color: var(--positive);
-  background: color-mix(in oklch, var(--positive) 12%, transparent);
-}
-.alternativa--certa .alternativa__letra {
-  background: var(--positive);
-  border-color: var(--positive);
-  color: white;
-}
-.alternativa--errada {
-  border-color: var(--negative);
-  background: color-mix(in oklch, var(--negative) 10%, transparent);
-}
-.alternativa--errada .alternativa__letra {
-  background: var(--negative);
-  border-color: var(--negative);
-  color: white;
-}
 .acoes {
   display: flex;
   flex-wrap: wrap;
@@ -460,63 +459,29 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
   color: var(--negative);
 }
 
-.artigos {
-  margin-top: 1.25rem;
-}
-.artigos .painel__corpo {
-  display: grid;
-  gap: 1.25rem;
-}
-.artigo {
-  display: grid;
-  gap: 0.5rem;
-}
-.artigo__titulo {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.6rem;
-}
-.artigo__texto {
-  margin: 0;
-  max-height: 26rem;
-  overflow: auto;
-}
-.nota-de-redacao {
-  font-size: 0.8em;
-  color: var(--muted-foreground);
-}
-.pendente {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--muted-foreground);
-}
-
 .nota-final {
   margin: 0 0 1rem;
   font-size: 1.4rem;
   font-family: var(--font-display);
 }
-.tabela-resultado {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-.tabela-resultado th {
-  text-align: left;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted-foreground);
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-.tabela-resultado td {
-  padding: 0.45rem 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-.numero {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+
+@media (max-width: 640px) {
+  .tabela-provas thead {
+    display: none;
+  }
+  .tabela-provas tr {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabela-provas td {
+    padding: 0;
+    border: 0;
+  }
+  .tabela-provas .acao {
+    text-align: left;
+    margin-top: 0.35rem;
+  }
 }
 </style>

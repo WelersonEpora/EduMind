@@ -15,6 +15,8 @@ module.exports = (sequelize) =>
       ano: { type: DataTypes.INTEGER },
       gabarito_situacao: { type: DataTypes.STRING(20) },
       observacoes: { type: DataTypes.TEXT },
+      // O tempo das questões objetivas da prova real, em minutos (etapa 5b).
+      duracao_minutos: { type: DataTypes.INTEGER },
       leitura_status: { type: DataTypes.STRING(20) },
       leitura_erro: { type: DataTypes.TEXT },
       leitura: { type: DataTypes.JSONB },

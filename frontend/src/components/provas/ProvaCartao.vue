@@ -6,6 +6,7 @@ import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { urlDoArquivoDaProva } from '../../services/provas.service'
 import { useSessao } from '../../composables/useSessao'
+import { duracaoLegivel } from '../../utils/formatar'
 
 // Uma prova da biblioteca: dados do concurso, o PDF da prova, o gabarito com a origem e as ações.
 // escolhida: está na lista do edital (mostra "tirar deste edital"); senão mostra "usar neste edital".
@@ -48,11 +49,18 @@ const poucoTexto = computed(() => {
 const editando = ref(false)
 const formulario = ref({})
 function editar() {
-  formulario.value = { banca: props.prova.banca || '', orgao: props.prova.orgao || '', cargo: props.prova.cargo || '', ano: props.prova.ano || '' }
+  formulario.value = {
+    banca: props.prova.banca || '',
+    orgao: props.prova.orgao || '',
+    cargo: props.prova.cargo || '',
+    ano: props.prova.ano || '',
+    duracao_minutos: props.prova.duracao_minutos || ''
+  }
   editando.value = true
 }
 function salvar() {
-  emit('salvar', { ...formulario.value, ano: formulario.value.ano === '' ? null : String(formulario.value.ano) })
+  const { ano, duracao_minutos: duracao } = formulario.value
+  emit('salvar', { ...formulario.value, ano: ano === '' ? null : String(ano), duracao_minutos: duracao === '' ? null : String(duracao) })
   editando.value = false
 }
 
@@ -75,7 +83,10 @@ function excluir() {
     <div class="painel__cabecalho cabecalho">
       <div>
         <h3>{{ titulo }}</h3>
-        <span class="ano">{{ prova.ano || 'ano não informado' }}</span>
+        <span class="ano">
+          {{ prova.ano || 'ano não informado' }}
+          <template v-if="prova.duracao_minutos"> · {{ duracaoLegivel(prova.duracao_minutos) }} para as objetivas</template>
+        </span>
       </div>
       <div class="relevancia" v-if="prova.relevancia">
         <Tag v-if="prova.relevancia.mesmaBanca" value="mesma banca" severity="success" />
@@ -90,6 +101,11 @@ function excluir() {
         <label><span class="rotulo">Órgão</span><InputText v-model="formulario.orgao" size="small" /></label>
         <label><span class="rotulo">Cargo</span><InputText v-model="formulario.cargo" size="small" /></label>
         <label><span class="rotulo">Ano</span><InputText v-model="formulario.ano" size="small" inputmode="numeric" /></label>
+        <!-- O simulador usa este tempo na prova completa (etapa 5b); a redação, se houver, fica de fora. -->
+        <label title="Tempo da prova real só para as questões objetivas (desconte a redação, se houver). O simulador usa este tempo na prova completa.">
+          <span class="rotulo">Tempo das objetivas (min)</span>
+          <InputText v-model="formulario.duracao_minutos" size="small" inputmode="numeric" placeholder="ex.: 240" />
+        </label>
         <span class="botoes">
           <Button type="submit" label="Salvar" size="small" :disabled="ocupado" />
           <Button label="Cancelar" size="small" severity="secondary" text @click="editando = false" />

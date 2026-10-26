@@ -66,6 +66,9 @@ test("aluno: lê só os editais atribuídos e a biblioteca; o resto é 403", asy
   // O simulador do edital atribuído (etapa 5a): o treino sem disciplina é 400, não 403.
   assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}/simulador`)).status, 200);
   assert.equal((await chamar(aluno, "POST", `/editais/${atribuido}/simulador/treino`, {})).status, 400);
+  // A prova completa (etapa 5b) também é dele: sem prova escolhida é 400; prova que não existe, 404.
+  assert.equal((await chamar(aluno, "POST", `/editais/${atribuido}/simulador/provas`, {})).status, 400);
+  assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}/simulador/provas/${atribuido}`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}/simulador`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}/conteudo`)).status, 404);

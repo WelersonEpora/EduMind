@@ -21,6 +21,7 @@ module.exports = function definirModelos(sequelize) {
   const Membro = require("./membro")(sequelize);
   const EditalAluno = require("./editalAluno")(sequelize);
   require("./resposta")(sequelize);
+  require("./simulado")(sequelize);
 
   Membro.belongsTo(Usuario, { foreignKey: "usuario_id", as: "usuario" });
   Membro.belongsTo(Equipe, { foreignKey: "equipe_id", as: "equipe" });

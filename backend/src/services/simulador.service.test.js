@@ -12,7 +12,7 @@ const { criarExtracaoService } = require("./extracao.service");
 const { criarRevisaoService } = require("./revisao.service");
 const { criarFontesService } = require("./fontes.service");
 const { criarCoberturaService } = require("./cobertura.service");
-const { criarSimuladorService, chaveDoNome, disciplinaPeloNome, mudouDepoisDaProva } = require("./simulador.service");
+const { criarSimuladorService, chaveDoNome, disciplinaPeloNome, mudouDepoisDaProva, duracaoDoSimulado } = require("./simulador.service");
 
 const PAGINAS = [{ numero: 1, texto: "Conteúdo programático" }];
 const no = (texto, extras = {}) => ({ texto, pagina: 1, source_excerpt: "Conteúdo programático", ...extras });
@@ -60,7 +60,7 @@ async function montar(t) {
 
   // A prova de 2021, escolhida para o edital.
   const prova = randomUUID();
-  await Prova.create({ id: prova, equipe_id: equipeId, banca: "VUNESP", ano: 2021, gabarito_situacao: "nao_oficial" });
+  await Prova.create({ id: prova, equipe_id: equipeId, banca: "VUNESP", ano: 2021, gabarito_situacao: "nao_oficial", duracao_minutos: 70 });
   await EditalProva.create({ edital_id: edital.id, prova_id: prova });
   const questao = async (numero, disciplina, extras = {}, referencias = []) => {
     const id = randomUUID();
@@ -78,9 +78,15 @@ async function montar(t) {
     imagem: await questao(6, "Língua Portuguesa", { depende_de_imagem: true }),
     aRevisar: await questao(7, "Língua Portuguesa", { status: "a_revisar" })
   };
-  const service = criarSimuladorService({ sequelize, coberturaService: criarCoberturaService({ sequelize }), embaralhar: (lista) => lista });
+  const relogio = { agora: new Date("2026-10-26T10:00:00Z") };
+  const service = criarSimuladorService({
+    sequelize,
+    coberturaService: criarCoberturaService({ sequelize }),
+    embaralhar: (lista) => lista,
+    agora: () => relogio.agora
+  });
   const disciplinas = Object.fromEntries((await editais.conteudo(edital.id)).filter((i) => i.nivel === "disciplina").map((i) => [i.texto, i.id]));
-  return { sequelize, service, edital, q, disciplinas, Resposta };
+  return { sequelize, service, edital, prova, q, disciplinas, Resposta, relogio };
 }
 
 test("nome da disciplina: maiúsculas, acentos e espaços não importam; uma pode começar com a outra", () => {
@@ -149,4 +155,82 @@ test("responder: corrige no servidor, guarda a resposta e devolve os artigos com
   await assert.rejects(service.responder(edital.id, usuario, { questao_id: q.penal, resposta: "Z" }), { status: 400 });
   await assert.rejects(service.responder(edital.id, usuario, { questao_id: q.anulada, resposta: "B" }), { status: 404 });
   await assert.rejects(service.responder(edital.id, usuario, { questao_id: "x", resposta: "B" }), { status: 400 });
+});
+
+test("tempo da prova completa: o da prova real, proporcional às questões disponíveis; sem ele, 3 minutos por questão", () => {
+  assert.deepEqual(duracaoDoSimulado({ duracaoDaProva: 240, disponiveis: 70, total: 100 }), { minutos: 168, estimada: false });
+  assert.deepEqual(duracaoDoSimulado({ duracaoDaProva: null, disponiveis: 70, total: 100 }), { minutos: 210, estimada: true });
+});
+
+async function usuario(sequelize, email = "aluno@teste.br") {
+  const id = randomUUID();
+  await sequelize.models.Usuario.create({ id, nome: "Aluno", email, senha_hash: "x" });
+  return id;
+}
+
+test("prova completa: questões na ordem da prova, sem gabarito; respostas guardadas sem corrigir; a entrega corrige", async (t) => {
+  const { sequelize, service, edital, prova, q, Resposta } = await montar(t);
+  const aluno = await usuario(sequelize);
+
+  const simulado = await service.iniciarProva(edital.id, aluno, { prova_id: prova });
+  assert.deepEqual(simulado.questoes.map((x) => x.id), [q.portugues, q.penal, q.processo, q.outra]);
+  assert.equal(simulado.questoes.some((x) => "gabarito" in x), false);
+  // 4 das 7 questões da prova (as descartadas não contam), 70 minutos na prova real: 40 minutos.
+  assert.deepEqual([simulado.prova.total, simulado.duracao_minutos, simulado.duracao_estimada, simulado.restante_segundos], [7, 40, false, 2400]);
+  assert.equal("resultado" in simulado, false);
+  await assert.rejects(service.iniciarProva(edital.id, aluno, { prova_id: prova }), { status: 409 });
+  assert.equal((await service.resumo(edital.id, aluno)).em_andamento.id, simulado.id);
+
+  await service.marcar(edital.id, aluno, simulado.id, q.penal, { resposta: "a" });
+  await service.marcar(edital.id, aluno, simulado.id, q.portugues, { resposta: "B", marcada: true });
+  await service.marcar(edital.id, aluno, simulado.id, q.outra, { resposta: "C" });
+  let guardado = await service.marcar(edital.id, aluno, simulado.id, q.outra, { resposta: null });
+  assert.deepEqual(guardado.respostas, { [q.penal]: "A", [q.portugues]: "B" });
+  assert.deepEqual(guardado.marcadas, [q.portugues]);
+  guardado = await service.marcar(edital.id, aluno, simulado.id, q.portugues, { marcada: false });
+  assert.deepEqual(guardado.marcadas, []);
+  assert.equal(await Resposta.count(), 0);
+  await assert.rejects(service.marcar(edital.id, aluno, simulado.id, q.penal, { resposta: "Z" }), { status: 400 });
+  await assert.rejects(service.marcar(edital.id, aluno, simulado.id, q.anulada, { resposta: "B" }), { status: 404 });
+
+  // Outro usuário não vê nem altera a prova.
+  const outro = await usuario(sequelize, "outro@teste.br");
+  await assert.rejects(service.prova(edital.id, outro, simulado.id), { status: 404 });
+
+  const entregue = await service.entregar(edital.id, aluno, simulado.id);
+  assert.deepEqual([entregue.resultado.acertos, entregue.resultado.total, entregue.resultado.em_branco], [1, 4, 2]);
+  assert.deepEqual(
+    entregue.questoes.map((x) => [x.resposta, x.gabarito, x.acertou]),
+    [["B", "B", true], ["A", "B", false], [null, "B", false], [null, "B", false]]
+  );
+  assert.equal(entregue.questoes[1].artigos[0].mudou_depois_da_prova, "depois");
+  assert.deepEqual(entregue.resultado.por_disciplina.find((d) => d.disciplina === "Língua Portuguesa"), { disciplina: "Língua Portuguesa", total: 1, acertos: 1, em_branco: 0 });
+  assert.deepEqual(
+    (await Resposta.findAll({ where: { simulado_id: simulado.id }, raw: true })).map((r) => [r.questao_id, r.acertou]).sort(),
+    [[q.penal, false], [q.portugues, true]].sort()
+  );
+  // Entregar de novo não grava outra vez; depois de entregue, nada muda.
+  await service.entregar(edital.id, aluno, simulado.id);
+  assert.equal(await Resposta.count(), 2);
+  await assert.rejects(service.marcar(edital.id, aluno, simulado.id, q.penal, { resposta: "B" }), { status: 409 });
+  await assert.rejects(service.desistir(edital.id, aluno, simulado.id), { status: 409 });
+  assert.equal((await service.resumo(edital.id, aluno)).em_andamento, null);
+});
+
+test("prova completa: quando o tempo acaba, a prova é entregue com o que foi respondido; desistir apaga", async (t) => {
+  const { sequelize, service, edital, prova, q, relogio } = await montar(t);
+  const aluno = await usuario(sequelize);
+
+  const simulado = await service.iniciarProva(edital.id, aluno, { prova_id: prova });
+  await service.marcar(edital.id, aluno, simulado.id, q.portugues, { resposta: "B" });
+  relogio.agora = new Date(relogio.agora.getTime() + 41 * 60 * 1000);
+  await assert.rejects(service.marcar(edital.id, aluno, simulado.id, q.penal, { resposta: "B" }), { status: 409 });
+  const entregue = await service.prova(edital.id, aluno, simulado.id);
+  assert.ok(entregue.entregue_em);
+  assert.equal(entregue.resultado.acertos, 1);
+
+  const outra = await service.iniciarProva(edital.id, aluno, { prova_id: prova });
+  await service.desistir(edital.id, aluno, outra.id);
+  await assert.rejects(service.prova(edital.id, aluno, outra.id), { status: 404 });
+  await assert.rejects(service.iniciarProva(edital.id, aluno, { prova_id: randomUUID() }), { status: 404 });
 });

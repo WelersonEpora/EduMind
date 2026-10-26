@@ -8,16 +8,16 @@ const { exigirOrientador } = require("../shared/acesso");
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
 // O que o aluno pode nos editais (etapa 4c): ler a lista, o edital, o conteúdo programático, as páginas, o PDF e a
-// cobertura, e usar o simulador (etapa 5a), só nos editais atribuídos a ele. O resto (revisão, fontes, provas e
+// cobertura, e usar o simulador (etapas 5a e 5b), só nos editais atribuídos a ele. O resto (revisão, fontes, provas e
 // qualquer alteração) é do orientador e do professor.
-// GET "/" (a lista), "/:id", "/:id/conteudo", "/:id/cobertura", "/:id/arquivo", "/:id/paginas/:numero" e
-// "/:id/simulador"; POST "/:id/simulador/treino" e "/:id/simulador/respostas".
+// GET "/" (a lista), "/:id", "/:id/conteudo", "/:id/cobertura", "/:id/arquivo" e "/:id/paginas/:numero"; tudo em
+// "/:id/simulador" (o que se grava ali é do próprio usuário).
 function eLeituraDoAluno(req) {
   const partes = req.path.split("/").filter(Boolean);
-  if (req.method === "POST") return partes.length === 3 && partes[1] === "simulador" && ["treino", "respostas"].includes(partes[2]);
+  if (partes[1] === "simulador") return true;
   if (req.method !== "GET") return false;
   if (partes.length <= 1) return true;
-  if (partes.length === 2) return ["conteudo", "cobertura", "arquivo", "simulador"].includes(partes[1]);
+  if (partes.length === 2) return ["conteudo", "cobertura", "arquivo"].includes(partes[1]);
   return partes.length === 3 && partes[1] === "paginas";
 }
 function leituraDoAluno(req, res, next) {
@@ -120,7 +120,7 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
   // Simulador, treino por disciplina (etapa 5a): o resumo para a tela de início, as questões de um treino (sem o
   // gabarito) e a correção de uma resposta.
   router.get("/:id/simulador", async (req, res) => {
-    res.json({ data: await simuladorService.resumo(req.params.id) });
+    res.json({ data: await simuladorService.resumo(req.params.id, req.usuario.id) });
   });
 
   router.post("/:id/simulador/treino", async (req, res) => {
@@ -129,6 +129,28 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
 
   router.post("/:id/simulador/respostas", async (req, res) => {
     res.status(201).json({ data: await simuladorService.responder(req.params.id, req.usuario.id, req.body || {}) });
+  });
+
+  // Prova completa cronometrada (etapa 5b): cada usuário só vê e altera as suas. { prova_id } para começar;
+  // { resposta?, marcada? } para guardar uma questão sem corrigir; a entrega corrige tudo.
+  router.post("/:id/simulador/provas", async (req, res) => {
+    res.status(201).json({ data: await simuladorService.iniciarProva(req.params.id, req.usuario.id, req.body || {}) });
+  });
+
+  router.get("/:id/simulador/provas/:simuladoId", async (req, res) => {
+    res.json({ data: await simuladorService.prova(req.params.id, req.usuario.id, req.params.simuladoId) });
+  });
+
+  router.put("/:id/simulador/provas/:simuladoId/questoes/:questaoId", async (req, res) => {
+    res.json({ data: await simuladorService.marcar(req.params.id, req.usuario.id, req.params.simuladoId, req.params.questaoId, req.body || {}) });
+  });
+
+  router.post("/:id/simulador/provas/:simuladoId/entrega", async (req, res) => {
+    res.json({ data: await simuladorService.entregar(req.params.id, req.usuario.id, req.params.simuladoId) });
+  });
+
+  router.delete("/:id/simulador/provas/:simuladoId", async (req, res) => {
+    res.json({ data: await simuladorService.desistir(req.params.id, req.usuario.id, req.params.simuladoId) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {

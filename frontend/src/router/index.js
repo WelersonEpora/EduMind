@@ -10,6 +10,7 @@ import CoberturaView from '../views/CoberturaView.vue'
 import ProvasView from '../views/ProvasView.vue'
 import QuestoesView from '../views/QuestoesView.vue'
 import SimuladorView from '../views/SimuladorView.vue'
+import SimuladoView from '../views/SimuladoView.vue'
 import LoginView from '../views/LoginView.vue'
 import EquipeView from '../views/EquipeView.vue'
 import ContaView from '../views/ContaView.vue'
@@ -37,7 +38,9 @@ const router = createRouter({
         { path: 'provas', name: 'provas', component: ProvasView, meta: { naoAluno: true } },
         // A prova é da equipe e pode estar em mais de um edital: o :id diz de qual edital se chegou.
         { path: 'provas/:provaId', name: 'questoes', component: QuestoesView, meta: { naoAluno: true } },
-        { path: 'simulador', name: 'simulador', component: SimuladorView }
+        { path: 'simulador', name: 'simulador', component: SimuladorView },
+        // Uma prova completa (etapa 5b), em andamento ou entregue.
+        { path: 'simulador/provas/:simuladoId', name: 'simulado', component: SimuladoView }
       ]
     },
     { path: '/normas', name: 'normas', component: BibliotecaView },

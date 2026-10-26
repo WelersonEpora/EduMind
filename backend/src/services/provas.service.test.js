@@ -130,6 +130,9 @@ test("editar, escolher para o edital, desfazer e excluir", async (t) => {
 
   const editada = await service.atualizar(terceira.id, { cargo: " Analista ", ano: "2019" });
   assert.deepEqual([editada.cargo, editada.ano], ["Analista", 2019]);
+  assert.equal((await service.atualizar(terceira.id, { duracao_minutos: "240" })).duracao_minutos, 240);
+  assert.equal((await service.atualizar(terceira.id, { duracao_minutos: "" })).duracao_minutos, null);
+  await assert.rejects(service.atualizar(terceira.id, { duracao_minutos: "4h" }), { status: 400 });
   await assert.rejects(service.atualizar(terceira.id, { prova_id: "x" }), { status: 400 });
   await assert.rejects(service.atualizar(crypto.randomUUID(), { ano: "2019" }), { status: 404 });
 

@@ -101,6 +101,15 @@ function anoOpcional(valor, agora) {
   return ano;
 }
 
+// O tempo das questões objetivas, em minutos (etapa 5b): vazio ou um inteiro de 1 a 600.
+function duracaoOpcional(valor) {
+  const texto = textoOpcional(valor);
+  if (!texto) return null;
+  const minutos = Number(texto);
+  if (!Number.isInteger(minutos) || minutos < 1 || minutos > 600) throw new AppError(400, "O tempo da prova precisa ser um número de minutos entre 1 e 600.");
+  return minutos;
+}
+
 function situacaoDoGabarito(valor) {
   const texto = textoOpcional(valor);
   if (!texto) return null;
@@ -285,13 +294,14 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
 
   async function atualizar(provaId, campos = {}) {
     const prova = await provaExistente(provaId);
-    const permitidos = ["banca", "orgao", "cargo", "ano", "gabarito_situacao", "observacoes"];
+    const permitidos = ["banca", "orgao", "cargo", "ano", "gabarito_situacao", "observacoes", "duracao_minutos"];
     const nomes = Object.keys(campos);
     if (nomes.length === 0) throw new AppError(400, "Nada para alterar.");
     const alteracoes = {};
     for (const nome of nomes) {
       if (!permitidos.includes(nome)) throw new AppError(400, `O campo "${nome}" não pode ser editado aqui.`);
       if (nome === "ano") alteracoes.ano = anoOpcional(campos.ano, agora);
+      else if (nome === "duracao_minutos") alteracoes.duracao_minutos = duracaoOpcional(campos.duracao_minutos);
       else if (nome === "gabarito_situacao") alteracoes.gabarito_situacao = situacaoDoGabarito(campos.gabarito_situacao);
       else alteracoes[nome] = textoOpcional(campos[nome]);
     }

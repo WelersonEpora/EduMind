@@ -40,3 +40,20 @@ export function textoCorrido(texto) {
     .filter(Boolean)
     .join('\n\n')
 }
+
+// Duração em minutos para ler: 40 → "40 min"; 168 → "2h48"; 240 → "4h".
+export function duracaoLegivel(minutos) {
+  if (minutos < 60) return `${minutos} min`
+  const horas = Math.floor(minutos / 60)
+  const resto = minutos % 60
+  return resto ? `${horas}h${String(resto).padStart(2, '0')}` : `${horas}h`
+}
+
+// Relógio da prova: 4325 segundos → "1:12:05"; 300 → "5:00".
+export function relogio(segundos) {
+  const s = Math.max(0, Math.floor(segundos))
+  const horas = Math.floor(s / 3600)
+  const minutos = Math.floor((s % 3600) / 60)
+  const resto = String(s % 60).padStart(2, '0')
+  return horas ? `${horas}:${String(minutos).padStart(2, '0')}:${resto}` : `${minutos}:${resto}`
+}
