@@ -119,7 +119,12 @@ async function aoAlterar({ membro, senhaRedefinida }) {
               <span class="nome">{{ membro.nome }}<em v-if="membro.usuario_id === usuario?.id"> (você)</em></span>
               <span class="email">{{ membro.email }}</span>
             </td>
-            <td>{{ NOMES_DOS_PAPEIS[membro.papel] }}</td>
+            <td>
+              {{ NOMES_DOS_PAPEIS[membro.papel] }}
+              <span v-if="membro.editais" class="email editais-do-aluno">
+                {{ membro.editais.length === 0 ? 'nenhum edital' : `${membro.editais.length} ${membro.editais.length === 1 ? 'edital' : 'editais'}` }}
+              </span>
+            </td>
             <td><Tag :value="membro.ativo ? 'ativo' : 'desativado'" :severity="membro.ativo ? 'success' : 'secondary'" /></td>
             <td v-if="souOrientador" class="acoes">
               <Button label="Editar" icon="pi pi-pencil" size="small" text @click="editar(membro)" />
@@ -175,6 +180,9 @@ async function aoAlterar({ membro, senhaRedefinida }) {
 .email {
   color: var(--muted-foreground);
   font-size: 0.82rem;
+}
+.editais-do-aluno {
+  display: block;
 }
 .inativo .nome,
 .inativo .email {

@@ -1,13 +1,14 @@
 "use strict";
 
 const express = require("express");
-const { exigirOrientador } = require("../shared/acesso");
+const { exigirOrientador, exigirOrientadorOuProfessor } = require("../shared/acesso");
 
-// A equipe da requisição e os membros dela (etapa 4b-2). Ver a equipe: qualquer membro. Mudar: só o orientador.
+// A equipe da requisição e os membros dela (etapa 4b-2). Ver a equipe: orientador e professor (o aluno não vê os nomes
+// e e-mails dos outros, etapa 4c). Mudar: só o orientador.
 function criarRotasDaEquipe(equipeService) {
   const router = express.Router();
 
-  router.get("/", async (req, res) => {
+  router.get("/", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await equipeService.equipe(req.equipe.id) });
   });
 

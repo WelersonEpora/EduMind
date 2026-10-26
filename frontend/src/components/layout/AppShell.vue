@@ -15,7 +15,7 @@ const CHAVE_RECOLHIDO = 'edumind-menu-recolhido'
 const route = useRoute()
 const router = useRouter()
 const { editais, recarregar } = useEditais()
-const { usuario, equipes, equipeAtual, trocarEquipe, sair } = useSessao()
+const { usuario, equipes, equipeAtual, eAluno, trocarEquipe, sair } = useSessao()
 
 const recolhido = ref(lerPreferencia(CHAVE_RECOLHIDO) === '1')
 const gavetaAberta = ref(false)
@@ -108,7 +108,7 @@ async function sairDoSistema() {
 
     <nav class="shell__sidebar" :class="{ 'shell__sidebar--aberta': gavetaAberta }" aria-label="Menu">
       <router-link to="/editais" class="shell__item" :class="{ 'shell__item--ativo': emEditais }" title="Editais" @click="fecharGaveta">
-        <i class="pi pi-folder-open"></i><span class="shell__rotulo">Editais</span>
+        <i class="pi pi-folder-open"></i><span class="shell__rotulo">{{ eAluno ? 'Meus editais' : 'Editais' }}</span>
         <span v-if="editais.length" class="shell__contador">{{ editais.length }}</span>
       </router-link>
       <router-link
@@ -121,9 +121,10 @@ async function sairDoSistema() {
         <i class="pi pi-book"></i><span class="shell__rotulo">Biblioteca de normas</span>
       </router-link>
 
-      <div class="shell__grupo"><span class="shell__rotulo">Equipe</span></div>
+      <!-- O aluno não vê os membros da equipe (etapa 4c); o grupo só fica para o administrador, se for o caso. -->
+      <div v-if="!eAluno || usuario?.admin" class="shell__grupo"><span class="shell__rotulo">Equipe</span></div>
       <router-link
-        v-if="equipeAtual"
+        v-if="equipeAtual && !eAluno"
         to="/equipe"
         class="shell__item"
         :class="{ 'shell__item--ativo': route.name === 'equipe' }"
@@ -143,10 +144,12 @@ async function sairDoSistema() {
         <i class="pi pi-sitemap"></i><span class="shell__rotulo">Equipes da plataforma</span>
       </router-link>
 
-      <div class="shell__grupo"><span class="shell__rotulo">Próximas etapas</span></div>
-      <span class="shell__item shell__item--desativado" title="Fora do escopo do MVP">
-        <i class="pi pi-list-check"></i><span class="shell__rotulo">Provas e questões</span><em class="shell__etapa">depois</em>
-      </span>
+      <template v-if="!eAluno">
+        <div class="shell__grupo"><span class="shell__rotulo">Próximas etapas</span></div>
+        <span class="shell__item shell__item--desativado" title="Fora do escopo do MVP">
+          <i class="pi pi-list-check"></i><span class="shell__rotulo">Provas e questões</span><em class="shell__etapa">depois</em>
+        </span>
+      </template>
 
       <div class="shell__rodape"><span class="shell__rotulo">EduMind v{{ version }}</span></div>
     </nav>

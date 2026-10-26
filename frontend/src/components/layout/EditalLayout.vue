@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import Tag from 'primevue/tag'
 import { useEditais, nomeDoEdital } from '../../composables/useEditais'
 import { urlDoArquivo } from '../../services/editais.service'
+import { useSessao } from '../../composables/useSessao'
 import { formatarBytes, formatarDataHora, situacaoDoEdital } from '../../utils/formatar'
 
 // Casca das telas de um edital: volta à lista, nome e situação do edital, a linha do arquivo (o nome abre o PDF
@@ -12,6 +13,7 @@ import { formatarBytes, formatarDataHora, situacaoDoEdital } from '../../utils/f
 // da equipe, que o AppShell já carrega; a Visão geral recarrega a lista quando a extração muda situação, órgão e cargo.
 
 const route = useRoute()
+const { eAluno } = useSessao()
 const { editais, recarregar } = useEditais()
 
 const edital = computed(() => editais.value.find((e) => e.id === route.params.id) || null)
@@ -23,27 +25,29 @@ watch(() => route.name, (nome, anterior) => anterior && recarregar())
 // Pendentes de cada aba, a partir do andamento (só depois da extração).
 function pendentes(aba) {
   const andamento = edital.value?.andamento
-  if (!andamento) return 0
+  if (!andamento || eAluno.value) return 0
   if (aba === 'revisao') return andamento.revisao_pendentes
   if (aba === 'fontes') return andamento.fontes_pendentes
   return 0
 }
 
 // rotas: as telas que deixam a aba marcada (as questões de uma prova ficam dentro de Provas anteriores).
-const ABAS = [
-  { rotulo: 'Visão geral', icone: 'pi-file', nome: 'edital', rotas: ['edital'] },
+// doAluno: as abas que o aluno vê (etapa 4c); as outras são do trabalho do orientador e do professor.
+const TODAS_AS_ABAS = [
+  { rotulo: 'Visão geral', icone: 'pi-file', nome: 'edital', rotas: ['edital'], doAluno: true },
   { rotulo: 'Revisão', icone: 'pi-check-square', nome: 'revisao', rotas: ['revisao'] },
   { rotulo: 'Fontes', icone: 'pi-globe', nome: 'fontes', rotas: ['fontes'] },
-  { rotulo: 'Cobertura', icone: 'pi-chart-bar', nome: 'cobertura', rotas: ['cobertura'] },
+  { rotulo: 'Cobertura', icone: 'pi-chart-bar', nome: 'cobertura', rotas: ['cobertura'], doAluno: true },
   { rotulo: 'Provas anteriores', icone: 'pi-file-edit', nome: 'provas', rotas: ['provas', 'questoes'] }
 ]
+const ABAS = computed(() => TODAS_AS_ABAS.filter((aba) => !eAluno.value || aba.doAluno))
 </script>
 
 <template>
-  <router-link :to="{ name: 'editais' }" class="voltar-topo"><i class="pi pi-arrow-left"></i>Editais</router-link>
+  <router-link :to="{ name: 'editais' }" class="voltar-topo"><i class="pi pi-arrow-left"></i>{{ eAluno ? 'Meus editais' : 'Editais' }}</router-link>
   <div class="edital-topo">
     <h1 :title="edital ? nomeDoEdital(edital) : ''">{{ edital ? nomeDoEdital(edital) : '…' }}</h1>
-    <Tag v-if="edital" :value="situacaoDoEdital(edital).rotulo" :severity="situacaoDoEdital(edital).severidade" class="edital-topo__situacao" />
+    <Tag v-if="edital && !eAluno" :value="situacaoDoEdital(edital).rotulo" :severity="situacaoDoEdital(edital).severidade" class="edital-topo__situacao" />
   </div>
   <p v-if="edital" class="arquivo">
     <a :href="urlDoArquivo(edital.id)" target="_blank" rel="noopener" title="Abrir o PDF original" class="arquivo__nome">

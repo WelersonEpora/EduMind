@@ -18,8 +18,8 @@ import NormaIncluirModal from '../components/fontes/NormaIncluirModal.vue'
 // Incluir é só para orientador e professor (o backend confere o papel).
 const router = useRouter()
 const toast = useToast()
-const { equipeAtual } = useSessao()
-const podeIncluir = computed(() => ['orientador', 'professor'].includes(equipeAtual.value?.papel))
+// O aluno não vê "Citada em": é do trabalho da equipe e mostraria editais que não foram atribuídos a ele.
+const { podeEditar: podeIncluir, eAluno } = useSessao()
 const incluirAberto = ref(false)
 
 // Incluída (ou já existente): abre a norma, onde se busca a URL oficial e se envia o texto.
@@ -122,7 +122,7 @@ function situacao(norma) {
       <Column header="Texto">
         <template #body="{ data }"><Tag :value="situacao(data).rotulo" :severity="situacao(data).severidade" class="sem-quebra" /></template>
       </Column>
-      <Column header="Citada em" header-class="col-citada" body-class="col-citada">
+      <Column v-if="!eAluno" header="Citada em" header-class="col-citada" body-class="col-citada">
         <template #body="{ data }">
           <!-- .stop: o link leva às Fontes do edital, não à norma da linha. -->
           <router-link

@@ -9,11 +9,14 @@ import ConteudoProgramatico from '../components/edital/ConteudoProgramatico.vue'
 import LeitorDePaginas from '../components/edital/LeitorDePaginas.vue'
 import { buscarConteudo, buscarEdital, iniciarExtracao } from '../services/editais.service'
 import { useEditais } from '../composables/useEditais'
+import { useSessao } from '../composables/useSessao'
 
 const route = useRoute()
 const toast = useToast()
 // A lista da equipe dá o nome do edital na casca e a situação na tela de editais: a extração muda os dois.
 const { recarregar: recarregarEditais } = useEditais()
+// Extrair é do orientador e do professor; extrair de novo por cima de uma revisão, só do orientador (etapa 4c).
+const { podeEditar, eOrientador } = useSessao()
 
 const edital = ref(null)
 const erro = ref(null)
@@ -89,6 +92,7 @@ async function extrair() {
     } catch (e) {
       const dados = e.response?.data?.error
       if (dados?.codigo !== 'revisao_sera_perdida') throw e
+      if (!eOrientador.value) throw new Error(`${dados.message} Só o orientador pode extrair de novo um edital já revisado.`)
       const itens = dados.revisados === 1 ? 'item' : 'itens'
       if (!window.confirm(`${dados.message}\n\nExtrair de novo mesmo assim e perder a revisão de ${dados.revisados} ${itens}?`)) return
       edital.value = await iniciarExtracao(edital.value.id, { confirmarPerdaDaRevisao: true })
@@ -118,6 +122,7 @@ watch(() => route.params.id, carregar, { immediate: true })
           <div class="painel__cabecalho">
             <h2>Dados do concurso</h2>
             <Button
+              v-if="podeEditar"
               :label="edital.metadados ? 'Extrair de novo' : 'Extrair com IA'"
               icon="pi pi-sparkles"
               size="small"

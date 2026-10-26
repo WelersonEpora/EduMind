@@ -76,7 +76,8 @@ test("aluno: lê só os editais atribuídos e a biblioteca; o resto é 403", asy
     ["GET", `/provas/${prova}/questoes`],
     ["POST", "/normas", { jurisdicao: "BR", tipo: "Lei", numero: "1", ano: "2000", nome: "x" }],
     ["POST", `/normas/${norma}/buscar-url`],
-    ["PATCH", `/normas/${norma}`, { url: null }]
+    ["PATCH", `/normas/${norma}`, { url: null }],
+    ["GET", "/equipe"]
   ]) {
     assert.equal((await chamar(aluno, metodo, url, corpo)).status, 403, `${metodo} ${url}`);
   }

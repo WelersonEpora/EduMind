@@ -16,6 +16,7 @@ import {
   urlDoArquivoDaVersao
 } from '../services/editais.service'
 import FonteDaNorma from '../components/fontes/FonteDaNorma.vue'
+import { useSessao } from '../composables/useSessao'
 import { nomeDoEdital } from '../composables/useEditais'
 import { formatarDataHora } from '../utils/formatar'
 import { partesDoArtigo } from '../utils/normas'
@@ -27,6 +28,9 @@ import { partesDoArtigo } from '../utils/normas'
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+// O aluno só lê a norma (etapa 4c): a URL e as versões aparecem sem as ações.
+// "Citada em" também não é do aluno: mostraria editais que não foram atribuídos a ele.
+const { podeEditar, eAluno } = useSessao()
 
 const norma = ref(null)
 const artigos = ref([])
@@ -191,7 +195,7 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
       <div>
         <h1>{{ norma.nome }}</h1>
         <p class="mono">{{ norma.chave }}</p>
-        <p v-if="norma.editais.length">
+        <p v-if="norma.editais.length && !eAluno">
           Citada em:
           <router-link v-for="(edital, i) in norma.editais" :key="edital.id" :to="{ name: 'fontes', params: { id: edital.id } }">
             {{ nomeDoEdital(edital) }}<template v-if="i < norma.editais.length - 1">, </template>
@@ -205,6 +209,7 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
       <FonteDaNorma
         :norma="norma"
         :ocupado="ocupado"
+        :somente-leitura="!podeEditar"
         class="painel__corpo"
         @buscar-url="aoBuscarUrl"
         @definir-url="aoDefinirUrl"
@@ -214,7 +219,7 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
     </section>
 
     <Message v-if="norma.versoes.length === 0" severity="warn" :closable="false">
-      Esta norma ainda não tem texto. Envie o arquivo em "Fonte oficial e texto", acima.
+      Esta norma ainda não tem texto.<template v-if="podeEditar"> Envie o arquivo em "Fonte oficial e texto", acima.</template>
     </Message>
 
     <template v-else>
@@ -237,7 +242,7 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
       </div>
       <Message v-for="aviso in versao?.avisos || []" :key="aviso" severity="warn" :closable="false">{{ aviso }}</Message>
       <Message v-if="versao && !versao.processada_em" severity="warn" :closable="false">
-        Esta versão ainda não foi dividida em artigos. Use "processar de novo" em "Fonte oficial e texto", acima.
+        Esta versão ainda não foi dividida em artigos.<template v-if="podeEditar"> Use "processar de novo" em "Fonte oficial e texto", acima.</template>
       </Message>
 
       <!-- Sem títulos nem capítulos (lei curta), não há índice: o texto ocupa a largura toda. -->

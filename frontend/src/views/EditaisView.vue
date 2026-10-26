@@ -11,6 +11,7 @@ import Message from 'primevue/message'
 import EditalIncluirModal from '../components/edital/EditalIncluirModal.vue'
 import { useEditais, nomeDoEdital } from '../composables/useEditais'
 import { formatarDataHora, situacaoDoEdital } from '../utils/formatar'
+import { useSessao } from '../composables/useSessao'
 
 // Editais da equipe numa tabela, no padrão das Execuções do FinMind: busca no alto, ordenação por coluna e a linha
 // inteira abre o edital. O envio de um PDF novo fica no modal "Incluir".
@@ -18,6 +19,8 @@ import { formatarDataHora, situacaoDoEdital } from '../utils/formatar'
 const router = useRouter()
 const toast = useToast()
 const { editais, carregando, erro, recarregar } = useEditais()
+// O aluno vê só os editais atribuídos a ele, sem a situação do trabalho do orientador e sem incluir (etapa 4c).
+const { eAluno, podeEditar } = useSessao()
 
 const busca = ref('')
 const incluirAberto = ref(false)
@@ -55,8 +58,9 @@ async function aoEnviar({ edital, jaExistia }) {
 <template>
   <div class="pagina-cabecalho">
     <div>
-      <h1>Editais</h1>
-      <p>Os editais da equipe. Abra um para ver o conteúdo programático, revisar, buscar as fontes e conferir a cobertura.</p>
+      <h1>{{ eAluno ? 'Meus editais' : 'Editais' }}</h1>
+      <p v-if="eAluno">Os editais que o orientador separou para você. Abra um para ver o conteúdo programático e os artigos de lei cobrados.</p>
+      <p v-else>Os editais da equipe. Abra um para ver o conteúdo programático, revisar, buscar as fontes e conferir a cobertura.</p>
     </div>
   </div>
 
@@ -67,7 +71,7 @@ async function aoEnviar({ edital, jaExistia }) {
       <InputText v-model="busca" type="search" placeholder="Buscar por nome, arquivo, órgão, cargo ou banca" class="busca" />
       <div class="barra">
         <span class="mono contagem">{{ filtrados.length }} de {{ editais.length }}</span>
-        <Button label="Incluir" icon="pi pi-plus" size="small" @click="incluirAberto = true" />
+        <Button v-if="podeEditar" label="Incluir" icon="pi pi-plus" size="small" @click="incluirAberto = true" />
       </div>
     </div>
 
@@ -97,7 +101,7 @@ async function aoEnviar({ edital, jaExistia }) {
       <Column field="data_publicacao" header="Publicação" sortable header-class="col-publicacao" body-class="col-publicacao">
         <template #body="{ data }"><span class="numero">{{ dataBr(data.data_publicacao) }}</span></template>
       </Column>
-      <Column field="situacao.rotulo" header="Situação" sortable>
+      <Column v-if="!eAluno" field="situacao.rotulo" header="Situação" sortable>
         <template #body="{ data }">
           <Tag :value="data.situacao.rotulo" :severity="data.situacao.severidade" />
         </template>
@@ -110,13 +114,15 @@ async function aoEnviar({ edital, jaExistia }) {
       </Column>
       <template #empty>
         <p class="vazio">
-          {{ editais.length ? 'Nenhum edital com esse termo.' : 'Nenhum edital ainda. Use “Incluir” para enviar o primeiro PDF.' }}
+          <template v-if="editais.length">Nenhum edital com esse termo.</template>
+          <template v-else-if="eAluno">Nenhum edital separado para você ainda. Peça ao seu orientador.</template>
+          <template v-else>Nenhum edital ainda. Use “Incluir” para enviar o primeiro PDF.</template>
         </p>
       </template>
     </DataTable>
   </section>
 
-  <EditalIncluirModal v-model:visible="incluirAberto" @enviado="aoEnviar" />
+  <EditalIncluirModal v-if="podeEditar" v-model:visible="incluirAberto" @enviado="aoEnviar" />
 </template>
 
 <style scoped>

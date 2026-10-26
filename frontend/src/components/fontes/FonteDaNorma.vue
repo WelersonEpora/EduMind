@@ -7,10 +7,11 @@ import { formatarDataHora } from '../../utils/formatar'
 
 // O que é da norma da biblioteca, e não de um edital: a URL oficial (buscada pela IA ou informada) e as versões do
 // texto (upload manual). Usado no card de cada norma nas Fontes de um edital e na tela da norma na biblioteca; a tela
-// que usa faz as chamadas e recarrega.
+// que usa faz as chamadas e recarrega. somenteLeitura (o aluno, etapa 4c): mostra a URL e as versões, sem as ações.
 const props = defineProps({
   norma: { type: Object, required: true },
-  ocupado: { type: Boolean, default: false }
+  ocupado: { type: Boolean, default: false },
+  somenteLeitura: { type: Boolean, default: false }
 })
 const emit = defineEmits(['buscar-url', 'definir-url', 'enviar-versao', 'processar-versao'])
 
@@ -50,7 +51,7 @@ function escolherArquivo(evento) {
           <em class="fonte-url">{{ norma.url_fonte === 'busca_ia' ? 'achada pela busca da IA' : 'informada pelo orientador' }}</em>
         </template>
         <span v-else class="pendente">sem URL</span>
-        <span class="url__botoes">
+        <span v-if="!somenteLeitura" class="url__botoes">
           <Button label="Buscar com IA" icon="pi pi-search" size="small" text :loading="ocupado" @click="emit('buscar-url', norma)" />
           <Button label="Informar" icon="pi pi-pencil" size="small" text :disabled="ocupado" @click="abrirUrl" />
         </span>
@@ -64,7 +65,8 @@ function escolherArquivo(evento) {
 
     <section>
       <span class="rotulo">Texto da norma</span>
-      <p v-if="norma.versoes.length === 0" class="instrucao">
+      <p v-if="norma.versoes.length === 0 && somenteLeitura" class="instrucao">Ainda sem texto.</p>
+      <p v-else-if="norma.versoes.length === 0" class="instrucao">
         Abra a URL oficial no navegador, salve a página (Ctrl+S) e envie o arquivo aqui. Também serve PDF ou .txt.
       </p>
       <ul v-else class="versoes">
@@ -79,7 +81,7 @@ function escolherArquivo(evento) {
             </template>
             <span v-else class="pendente">ainda não dividido em artigos</span>
             <router-link v-if="versao.artigos_total" :to="{ name: 'norma', params: { id: norma.id }, query: { versao: versao.id } }">ver artigos</router-link>
-            <button type="button" class="link" :disabled="ocupado" @click="emit('processar-versao', norma, versao)">processar de novo</button>
+            <button v-if="!somenteLeitura" type="button" class="link" :disabled="ocupado" @click="emit('processar-versao', norma, versao)">processar de novo</button>
           </span>
           <ul v-if="versao.avisos?.length" class="avisos-versao">
             <li v-for="aviso in versao.avisos" :key="aviso">{{ aviso }}</li>
@@ -88,6 +90,7 @@ function escolherArquivo(evento) {
       </ul>
       <input ref="seletor" type="file" accept=".html,.htm,.pdf,.txt" hidden @change="escolherArquivo" />
       <Button
+        v-if="!somenteLeitura"
         :label="norma.versoes.length ? 'Enviar versão nova' : 'Enviar texto'"
         icon="pi pi-upload"
         size="small"

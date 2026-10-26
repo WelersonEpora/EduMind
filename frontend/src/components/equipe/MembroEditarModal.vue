@@ -1,16 +1,19 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
-import { alterarMembro } from '../../services/equipe.service'
+import { alterarMembro, atribuirEditais } from '../../services/equipe.service'
 import { NOMES_DOS_PAPEIS } from '../../composables/useSessao'
+import { useEditais, nomeDoEdital } from '../../composables/useEditais'
 
 // Edita um membro da equipe (etapa 4b-2). Papel e situação, sempre. Nome, e-mail e senha só quando a conta é só desta
 // equipe e não é de administrador (conta_editavel); a própria conta se muda em Minha conta. Manda só o que mudou.
+// Para aluno, também os editais que ele vê (etapa 4c): o aluno só vê os editais marcados aqui.
 
 const visivel = defineModel('visible', { type: Boolean, default: false })
 const props = defineProps({
@@ -30,10 +33,18 @@ const salvando = ref(false)
 const erro = ref('')
 const editaConta = computed(() => Boolean(props.membro?.conta_editavel) && !props.souEu)
 
+// Os editais da equipe, para marcar os do aluno. Só aparece para quem já é aluno e continua aluno.
+const { editais } = useEditais()
+const editaEditais = computed(() => props.membro?.papel === 'aluno' && dados.value.papel === 'aluno')
+const editaisMudaram = () => {
+  const antes = [...(props.membro.editais || [])].sort().join()
+  return editaEditais.value && antes !== [...dados.value.editais].sort().join()
+}
+
 watch(visivel, (aberto) => {
   if (!aberto || !props.membro) return
   const { nome, email, papel, ativo } = props.membro
-  dados.value = { nome, email, papel, ativo, senha: '' }
+  dados.value = { nome, email, papel, ativo, senha: '', editais: [...(props.membro.editais || [])] }
   erro.value = ''
 })
 
@@ -53,14 +64,17 @@ function alteracoes() {
 
 async function salvar() {
   const mudancas = alteracoes()
-  if (Object.keys(mudancas).length === 0) {
+  const mudaEditais = editaisMudaram()
+  if (Object.keys(mudancas).length === 0 && !mudaEditais) {
     visivel.value = false
     return
   }
   erro.value = ''
   salvando.value = true
   try {
-    const membro = await alterarMembro(props.membro.id, mudancas)
+    let membro = props.membro
+    if (Object.keys(mudancas).length) membro = await alterarMembro(props.membro.id, mudancas)
+    if (mudaEditais) membro = await atribuirEditais(props.membro.id, dados.value.editais)
     visivel.value = false
     emit('alterado', { membro, senhaRedefinida: Boolean(mudancas.senha) })
   } catch (e) {
@@ -82,6 +96,20 @@ async function salvar() {
         <span class="campo__rotulo">Situação</span>
         <SelectButton v-model="dados.ativo" :options="opcoesDeSituacao" option-label="rotulo" option-value="valor" :allow-empty="false" />
         <small v-if="!dados.ativo" class="dica">Desativada, a pessoa perde o acesso a esta equipe. Nada é apagado.</small>
+      </div>
+
+      <div v-if="editaEditais" class="campo">
+        <span class="campo__rotulo">Editais que este aluno vê</span>
+        <ul v-if="editais.length" class="editais">
+          <li v-for="edital in editais" :key="edital.id">
+            <label class="editais__opcao">
+              <Checkbox v-model="dados.editais" :value="edital.id" />
+              <span>{{ nomeDoEdital(edital) }}</span>
+            </label>
+          </li>
+        </ul>
+        <small v-else class="dica">A equipe ainda não tem editais.</small>
+        <small class="dica">O aluno só vê os editais marcados: a Visão geral e a Cobertura, sem a revisão e as fontes.</small>
       </div>
 
       <template v-if="editaConta">
@@ -131,6 +159,26 @@ async function salvar() {
 }
 .campo__rotulo {
   font-weight: 600;
+}
+.editais {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  list-style: none;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+/* .campos na frente: a regra dos rótulos do formulário (em coluna) não pode valer aqui. */
+.campos .editais__opcao {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-weight: 400;
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 .conta {
   display: flex;

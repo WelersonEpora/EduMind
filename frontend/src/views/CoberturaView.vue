@@ -9,11 +9,15 @@ import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import { buscarArtigosDaVersao, buscarCobertura, buscarEdital, conferirEstrutura } from '../services/editais.service'
 import { nomeDaNorma, partesDoArtigo } from '../utils/normas'
+import { useSessao } from '../composables/useSessao'
 
 // Cobertura do edital (etapa 2c): cada artigo pedido nos itens aprovados, cruzado com o texto da norma na biblioteca.
 // Encontrado, revogado ou faltando; o alerta de vigência marca os alterados depois da publicação do edital.
 const route = useRoute()
 const toast = useToast()
+// O aluno lê a cobertura (etapa 4c): sem as pendências do trabalho do orientador, sem conferir a estrutura e sem
+// links para Fontes, Revisão e questões, que ele não vê. Quantas vezes o artigo caiu continua à vista.
+const { eAluno } = useSessao()
 
 const edital = ref(null)
 const cobertura = ref(null)
@@ -193,7 +197,7 @@ const janelaVisivel = computed({
           </div>
         </div>
 
-        <Message v-if="pendencias.length" severity="warn" :closable="false">
+        <Message v-if="pendencias.length && !eAluno" severity="warn" :closable="false">
           Fora da contagem: {{ pendencias.join('; ') }}.
           <router-link :to="{ name: 'fontes', params: { id: edital.id } }">Ir para as Fontes</router-link>
         </Message>
@@ -265,7 +269,7 @@ const janelaVisivel = computed({
                         </div>
                       </div>
                     </details>
-                    <div class="estrutura__acoes">
+                    <div v-if="!eAluno" class="estrutura__acoes">
                       <Button
                         v-if="!citacao.estrutura.conferida"
                         label="Conferi: vale esta lista"
@@ -366,13 +370,14 @@ const janelaVisivel = computed({
 
       <section v-if="aberto.artigo.questoes?.length" class="janela__questoes">
         <span class="rotulo">Cobrado em</span>
-        <router-link
+        <component
+          :is="eAluno ? 'span' : 'router-link'"
           v-for="q in aberto.artigo.questoes"
           :key="q.questao_id"
-          :to="{ name: 'questoes', params: { id: edital.id, provaId: q.prova_id } }"
+          :to="eAluno ? undefined : { name: 'questoes', params: { id: edital.id, provaId: q.prova_id } }"
         >
           {{ q.banca }} {{ q.ano }} · questão {{ q.numero }}<template v-if="q.papel === 'relacionado'"> (relacionado)</template>
-        </router-link>
+        </component>
       </section>
       <p v-else-if="aberto.artigo.situacao === 'encontrado'" class="pendente">Nenhuma questão das provas escolhidas cobra este artigo.</p>
 

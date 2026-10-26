@@ -29,17 +29,19 @@ const router = createRouter({
       component: EditalLayout,
       children: [
         { path: '', name: 'edital', component: EditalView },
-        { path: 'revisao', name: 'revisao', component: RevisaoView },
-        { path: 'fontes', name: 'fontes', component: FontesView },
+        // naoAluno: o aluno não vê (etapa 4c); quem chega por link vai para a Visão geral.
+        { path: 'revisao', name: 'revisao', component: RevisaoView, meta: { naoAluno: true } },
+        { path: 'fontes', name: 'fontes', component: FontesView, meta: { naoAluno: true } },
         { path: 'cobertura', name: 'cobertura', component: CoberturaView },
-        { path: 'provas', name: 'provas', component: ProvasView },
+        { path: 'provas', name: 'provas', component: ProvasView, meta: { naoAluno: true } },
         // A prova é da equipe e pode estar em mais de um edital: o :id diz de qual edital se chegou.
-        { path: 'provas/:provaId', name: 'questoes', component: QuestoesView }
+        { path: 'provas/:provaId', name: 'questoes', component: QuestoesView, meta: { naoAluno: true } }
       ]
     },
     { path: '/normas', name: 'normas', component: BibliotecaView },
     { path: '/normas/:id', name: 'norma', component: NormaView },
-    { path: '/equipe', name: 'equipe', component: EquipeView },
+    // O aluno não vê os membros da equipe (etapa 4c).
+    { path: '/equipe', name: 'equipe', component: EquipeView, meta: { naoAluno: true } },
     // semEquipe: abre mesmo para quem não está em nenhuma equipe (o administrador, por exemplo).
     { path: '/conta', name: 'conta', component: ContaView, meta: { semEquipe: true } },
     { path: '/admin/equipes', name: 'admin-equipes', component: AdminEquipesView, meta: { semEquipe: true, soAdmin: true } }
@@ -60,6 +62,7 @@ router.beforeEach(async (to) => {
   if (to.meta.publica) return logado ? destinoSeguro(to.query.voltar) : true
   if (!logado) return { name: 'entrar', query: to.fullPath === '/' ? {} : { voltar: to.fullPath } }
   if (to.meta.soAdmin && !sessao.usuario.value.admin) return { name: 'editais' }
+  if (to.meta.naoAluno && sessao.eAluno.value) return to.params.id ? { name: 'edital', params: { id: to.params.id } } : { name: 'editais' }
   // O administrador sem equipe começa pela administração.
   if (to.name === 'editais' && !sessao.equipeAtual.value && sessao.usuario.value.admin) return { name: 'admin-equipes' }
   return true

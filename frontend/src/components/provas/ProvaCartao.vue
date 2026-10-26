@@ -5,9 +5,13 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { urlDoArquivoDaProva } from '../../services/provas.service'
+import { useSessao } from '../../composables/useSessao'
 
 // Uma prova da biblioteca: dados do concurso, o PDF da prova, o gabarito com a origem e as ações.
 // escolhida: está na lista do edital (mostra "tirar deste edital"); senão mostra "usar neste edital".
+// Excluir apaga a prova, as questões e a classificação: só o orientador (etapa 4c).
+const { eOrientador } = useSessao()
+
 const props = defineProps({
   prova: { type: Object, required: true },
   escolhida: { type: Boolean, default: false },
@@ -202,7 +206,7 @@ function excluir() {
         <Button v-if="escolhida" label="Tirar deste edital" size="small" severity="secondary" outlined :disabled="ocupado" @click="emit('desfazer')" />
         <Button v-else label="Usar neste edital" icon="pi pi-plus" size="small" :disabled="ocupado" @click="emit('escolher')" />
         <Button v-if="!editando" label="Editar dados" size="small" severity="secondary" text @click="editar" />
-        <Button label="Excluir da biblioteca" size="small" severity="danger" text :disabled="ocupado" @click="excluir" />
+        <Button v-if="eOrientador" label="Excluir da biblioteca" size="small" severity="danger" text :disabled="ocupado" @click="excluir" />
       </div>
     </div>
   </article>

@@ -22,6 +22,15 @@ function lerEquipeGuardada() {
 const equipes = computed(() => usuario.value?.equipes || [])
 const equipeAtual = computed(() => equipes.value.find((e) => e.id === equipeId.value) || null)
 
+// O que o papel na equipe atual permite (etapa 4c). O backend confere de novo: aqui é só o que a tela mostra.
+// - aluno: lê só os editais atribuídos a ele (Visão geral e Cobertura) e a biblioteca;
+// - professor: tudo no conteúdo, menos excluir prova e extrair de novo por cima de uma revisão;
+// - orientador: tudo, mais a equipe e a atribuição de editais aos alunos.
+const papel = computed(() => equipeAtual.value?.papel || null)
+const eAluno = computed(() => papel.value === 'aluno')
+const eOrientador = computed(() => papel.value === 'orientador')
+const podeEditar = computed(() => papel.value === 'orientador' || papel.value === 'professor')
+
 watch(
   equipeId,
   (id) => {
@@ -68,7 +77,7 @@ function trocarEquipe(id) {
 }
 
 export function useSessao() {
-  return { usuario, carregado, equipes, equipeAtual, carregar, entrar, sair, esquecer, trocarEquipe }
+  return { usuario, carregado, equipes, equipeAtual, papel, eAluno, eOrientador, podeEditar, carregar, entrar, sair, esquecer, trocarEquipe }
 }
 
 // Como o papel aparece na tela.
