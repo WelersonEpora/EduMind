@@ -41,6 +41,7 @@ function criarApp({
 }) {
   const app = express();
   app.disable("x-powered-by");
+  if (env.trustProxy) app.set("trust proxy", env.trustProxy);
   app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === "/health" } }));
   app.use(express.json());
   app.use(cookieParser());

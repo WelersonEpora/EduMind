@@ -1,0 +1,35 @@
+services:
+  backend:
+    image: ghcr.io/${GHCR_OWNER:-welersonepora}/edumind-backend:${BACKEND_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      # PDFs dos editais e das provas e normas baixadas, no volume abaixo.
+      DATA_DIR: /app/data
+    expose:
+      - "3000"
+    volumes:
+      - edumind_data:/app/data
+    # "db": rede do PostgreSQL compartilhado da VM (repositório servidor02-infra); o .env aponta
+    # POSTGRES_HOST=postgres. O banco não faz parte deste compose.
+    networks:
+      - default
+      - db
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:-welersonepora}/edumind-frontend:${FRONTEND_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # Só na própria VM: o acesso externo é pelo Nginx Proxy Manager, com HTTPS.
+    ports:
+      - "${FRONTEND_PORT:-127.0.0.1:8084}:80"
+    depends_on:
+      - backend
+
+volumes:
+  edumind_data:
+
+networks:
+  db:
+    external: true

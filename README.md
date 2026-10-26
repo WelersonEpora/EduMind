@@ -73,6 +73,49 @@ dados ao começar. Por isso o Postgres precisa estar no ar.
 O teste com o edital real do TJSP só roda quando o arquivo está em
 `tests/fixtures/edital_tjsp_escrevente_2025.pdf`; sem ele, aparece como pulado.
 
+## Publicação (produção)
+
+Mesmo modelo do FinMind. Em push para `main`, `.github/workflows/deploy.yml` gera as imagens
+`ghcr.io/<owner>/edumind-backend` e `edumind-frontend` (só `linux/arm64`, num runner ARM nativo) e faz o deploy
+por SSH na VM `servidor02` (Oracle Cloud, Ampere A1): `scripts/github-deploy.sh` + `scripts/deploy.sh`. O
+`.github/workflows/ci.yml` roda os testes do backend (com um Postgres 16) e o build do frontend em todo push.
+
+```text
+servidor02
+  /opt/apps/infra/postgres/   PostgreSQL 16 compartilhado (repositório servidor02-infra), rede Docker "db"
+  /opt/apps/edumind/app/      este repositório; o .env de produção fica aqui (fora do git)
+  /opt/apps/proxy/            Nginx Proxy Manager: edumind.weslab.com.br -> 127.0.0.1:8084, HTTPS (Let's Encrypt)
+```
+
+- **Compose:** `docker/compose.prod.yml`, só com as imagens publicadas (nunca builda na VM). O backend entra na rede
+  externa `db` (`POSTGRES_HOST=postgres`); os PDFs e as normas ficam no volume `edumind_data` (`/app/data`). O
+  frontend publica a porta só em `127.0.0.1:8084`: o acesso externo é pelo proxy, com HTTPS.
+- **Deploy:** baixa as imagens, roda as migrations e o seeder (o administrador inicial só é criado se não houver
+  nenhum) e só então sobe os containers, porque o backend consulta as tabelas ao iniciar.
+- **Limites:** o nginx do frontend aceita uploads de até 51 MB e espera o backend até 300 s (a busca da URL oficial
+  de uma norma leva até 180 s). No Nginx Proxy Manager, o host do EduMind precisa dos mesmos limites (aba Advanced):
+  `client_max_body_size 51m; proxy_read_timeout 300s; proxy_send_timeout 300s;`.
+
+### Primeira vez na VM
+
+```bash
+# 1. Banco: usuário e database "edumind" (mostra a senha uma única vez)
+cd /opt/apps/infra/postgres && ./scripts/criar-app.sh edumind
+
+# 2. Repositório (como o usuário deploy)
+sudo -iu deploy
+mkdir -p /opt/apps/edumind && cd /opt/apps/edumind && git clone https://github.com/WelersonEpora/EduMind.git app
+
+# 3. .env de produção em /opt/apps/edumind/app/.env (ver .env.example):
+#    NODE_ENV=production, TRUST_PROXY=2, FRONTEND_PORT=127.0.0.1:8084,
+#    POSTGRES_* do passo 1, JWT_SECRET (aleatório e forte), GEMINI_API_KEY_FREE, GEMINI_API_KEY,
+#    ADMIN_NOME, ADMIN_EMAIL e ADMIN_PASSWORD (só para criar o primeiro administrador; depois podem sair)
+```
+
+Depois: o host `edumind.weslab.com.br` no Nginx Proxy Manager (encaminhando para `127.0.0.1:8084`, com certificado
+Let's Encrypt e os limites acima), o registro DNS apontando para a VM e os secrets do GitHub Actions no repositório
+(os mesmos do FinMind): `ORACLE_HOST`, `ORACLE_USER`, `ORACLE_SSH_KEY`, `GHCR_PAT` e `GHCR_USERNAME`.
+
 ## Estrutura
 
 ```text

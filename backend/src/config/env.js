@@ -22,6 +22,9 @@ const nodeEnv = process.env.NODE_ENV || "development";
 module.exports = {
   nodeEnv,
   appPort: Number(process.env.APP_PORT || 3000),
+  // Quantos proxies há na frente do backend (produção: o Nginx Proxy Manager da VM e o nginx do frontend = 2). Com
+  // isso req.ip é o IP de quem acessa, e o limite de tentativas de login vale por pessoa, não para todos juntos.
+  trustProxy: Number(process.env.TRUST_PROXY || 0),
   // Arquivos enviados (PDFs dos editais, normas baixadas). Fora do git.
   dataDir: path.resolve(RAIZ_DO_PROJETO, process.env.DATA_DIR || "data"),
   banco,
