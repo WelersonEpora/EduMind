@@ -27,7 +27,7 @@ citadas. Edital de teste: TJSP Escrevente Técnico Judiciário 2025 (Vunesp).
   `X-Equipe-Id`. Editais e provas são da equipe (nunca aparecem para outra); a biblioteca de normas é de todos.
 - Permissões por papel (etapa 4c), conferidas no backend: o orientador faz tudo, gere a equipe e atribui editais aos
   alunos (`edital_aluno`); o professor faz tudo no conteúdo, menos excluir prova e extrair de novo por cima de uma
-  revisão; o aluno só lê os editais atribuídos a ele (Visão geral e Cobertura) e a biblioteca, e não vê Membros. Rota
+  revisão; o aluno só lê os editais atribuídos a ele (Visão geral e Cobertura), usa o simulador deles e a biblioteca, e não vê Membros. Rota
   nova de edital nasce fechada para o aluno (`leituraDoAluno` em `editais.routes.js`).
 
 ## Regras que não mudam
