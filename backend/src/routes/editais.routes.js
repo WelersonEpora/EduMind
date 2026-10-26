@@ -71,6 +71,11 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
     res.json({ data: await coberturaService.cobertura(req.params.id) });
   });
 
+  // O orientador confere (ou desfaz) a lista de artigos de uma citação por estrutura (etapa 2c-2): { conferida }.
+  router.put("/:id/cobertura/citacoes/:citacaoId/estrutura", async (req, res) => {
+    res.json({ data: await coberturaService.conferirEstrutura(req.params.id, req.params.citacaoId, req.body || {}) });
+  });
+
   // Provas anteriores do edital (etapa 3a): buscas sugeridas, provas escolhidas e as demais da biblioteca.
   router.get("/:id/provas", async (req, res) => {
     res.json({ data: await provasService.doEdital(req.params.id) });

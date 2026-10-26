@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -75,6 +76,19 @@ test("erros voltam com mensagem em português", async (t) => {
 
   const inexistente = await api(`${base}/api/v1/editais/nao-existe`);
   assert.equal(inexistente.status, 404);
+});
+
+test("conferência da estrutura: a rota existe e responde pelo serviço", async (t) => {
+  const { base, api } = await subir(t);
+  const criado = await api(`${base}/api/v1/editais`, { method: "POST", body: formularioComPdf(pdfMinimo([["Edital"]]), "e.pdf") });
+  const { data: edital } = await criado.json();
+  const url = `${base}/api/v1/editais/${edital.id}/cobertura/citacoes/${crypto.randomUUID()}/estrutura`;
+  const put = (corpo) => api(url, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) });
+
+  assert.equal((await put({})).status, 400);
+  const semCitacao = await put({ conferida: true });
+  assert.equal(semCitacao.status, 404);
+  assert.match((await semCitacao.json()).error.message, /Citação não encontrada/);
 });
 
 test("extração com IA: 202 com status 'extraindo', 409 se já em andamento, depois 'extraido'", async (t) => {
