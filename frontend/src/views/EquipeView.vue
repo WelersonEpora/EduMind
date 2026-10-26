@@ -6,7 +6,8 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
-import { alterarMembro, buscarEquipe, incluirMembro, renomearEquipe } from '../services/equipe.service'
+import { alterarMembro, buscarEquipe, renomearEquipe } from '../services/equipe.service'
+import MembroIncluirModal from '../components/equipe/MembroIncluirModal.vue'
 import { useSessao, NOMES_DOS_PAPEIS } from '../composables/useSessao'
 
 // A equipe atual e os membros dela (etapa 4b-2). Todos veem; só o orientador inclui, muda o papel, desativa e
@@ -46,29 +47,18 @@ async function salvarNome() {
   }
 }
 
-// Incluir
-const vazio = () => ({ nome: '', email: '', senha: '', papel: 'aluno' })
-const nova = ref(vazio())
-const incluindo = ref(false)
-async function incluir() {
-  incluindo.value = true
-  try {
-    const { data: membro, contaJaExistia } = await incluirMembro(nova.value)
-    toast.add({
-      severity: 'success',
-      summary: `${membro.nome} entrou na equipe`,
-      detail: contaJaExistia
-        ? 'Esta pessoa já tinha conta: ela entra com a senha que já usava (a senha informada não foi usada).'
-        : 'Passe o e-mail e a senha inicial para a pessoa. A senha pode ser trocada depois em "Minha conta".',
-      life: 9000
-    })
-    nova.value = vazio()
-    await carregar()
-  } catch (e) {
-    toast.add({ severity: 'error', summary: 'Não incluiu', detail: e.message, life: 6000 })
-  } finally {
-    incluindo.value = false
-  }
+// Incluir: o formulário fica no modal; aqui só o aviso e a lista nova.
+const incluirAberto = ref(false)
+async function aoIncluir({ data: membro, contaJaExistia }) {
+  toast.add({
+    severity: 'success',
+    summary: `${membro.nome} entrou na equipe`,
+    detail: contaJaExistia
+      ? 'Esta pessoa já tinha conta: ela entra com a senha que já usava (a senha informada não foi usada).'
+      : 'Passe o e-mail e a senha inicial para a pessoa. A senha pode ser trocada depois em "Minha conta".',
+    life: 9000
+  })
+  await carregar()
 }
 
 // Alterar papel ou ativar/desativar. Mexer em si mesmo atualiza a sessão (o menu e o papel mudam).
@@ -105,7 +95,10 @@ async function alterar(membro, alteracoes) {
 
   <template v-else-if="equipe">
     <section class="painel">
-      <div class="painel__cabecalho"><h2>Membros</h2></div>
+      <div class="painel__cabecalho">
+        <h2>Membros</h2>
+        <Button v-if="souOrientador" label="Incluir" icon="pi pi-plus" size="small" @click="incluirAberto = true" />
+      </div>
       <table class="tabela">
         <thead>
           <tr>
@@ -149,26 +142,7 @@ async function alterar(membro, alteracoes) {
       </table>
     </section>
 
-    <section v-if="souOrientador" class="painel incluir">
-      <div class="painel__cabecalho"><h2>Incluir pessoa</h2></div>
-      <form class="painel__corpo formulario" @submit.prevent="incluir">
-        <label>Nome<InputText v-model="nova.nome" autocomplete="off" /></label>
-        <label>E-mail<InputText v-model="nova.email" type="email" required autocomplete="off" /></label>
-        <label>
-          Senha inicial
-          <InputText v-model="nova.senha" autocomplete="new-password" placeholder="pelo menos 8 caracteres" />
-        </label>
-        <label>
-          Papel
-          <Select v-model="nova.papel" :options="opcoesDePapel" option-label="rotulo" option-value="valor" />
-        </label>
-        <Button type="submit" label="Incluir" icon="pi pi-user-plus" :loading="incluindo" />
-      </form>
-      <p class="painel__corpo dica">
-        Se o e-mail já tem conta no EduMind (a pessoa está em outra equipe), nome e senha não são usados: ela só passa a
-        fazer parte desta equipe também.
-      </p>
-    </section>
+    <MembroIncluirModal v-if="souOrientador" v-model:visible="incluirAberto" @incluido="aoIncluir" />
   </template>
 </template>
 
@@ -214,28 +188,6 @@ async function alterar(membro, alteracoes) {
 }
 .acoes {
   text-align: right;
-}
-.incluir {
-  margin-top: 1.25rem;
-}
-.formulario {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-  align-items: end;
-}
-.formulario label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-.dica {
-  padding-top: 0;
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--muted-foreground);
 }
 @media (max-width: 767px) {
   .tabela th:nth-child(3),
