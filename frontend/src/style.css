@@ -36,7 +36,6 @@ h1 {
 .pagina-cabecalho p {
   margin: 0.25rem 0 0;
   color: var(--muted-foreground);
-  max-width: 70ch;
 }
 
 /* Painel: a moldura padrão de um bloco de conteúdo. */
@@ -55,7 +54,8 @@ h1 {
   border-bottom: 1px solid var(--border);
 }
 .painel__cabecalho h2 {
-  font-size: 0.9rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
   font-weight: 700;
 }
 .painel__corpo {
@@ -92,4 +92,49 @@ h1 {
   color: var(--mark-foreground);
   border-radius: 2px;
   padding: 0 2px;
+}
+
+/* Tabelas do PrimeVue dentro de um painel: cabeçalho como o das tabelas simples (Membros) e sem borda dupla no fim. */
+.painel .p-datatable-thead > tr > th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+.painel .p-datatable-tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+/* Tabela cuja linha abre algo (como no FinMind): cursor de mão e, na última coluna (.coluna-abrir), um chevron. */
+.tabela-clicavel .p-datatable-tbody > tr:not(.p-datatable-empty-message) {
+  cursor: pointer;
+}
+.tabela-clicavel .coluna-abrir {
+  width: 2.5rem;
+  text-align: right;
+  color: var(--muted-foreground);
+}
+.tabela-clicavel .coluna-abrir .pi {
+  font-size: 0.75rem;
+}
+.tabela-clicavel .p-datatable-tbody > tr:hover .coluna-abrir {
+  color: var(--primary);
+}
+
+/* Link de volta à tela de cima ("← Editais"): sempre sozinho, na primeira linha, acima do título. */
+.voltar-topo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+.voltar-topo:hover {
+  color: var(--primary);
+}
+.voltar-topo .pi {
+  font-size: 0.75rem;
 }

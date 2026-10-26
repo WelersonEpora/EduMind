@@ -1,11 +1,12 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
-import { buscarPagina } from '../../services/editais.service'
+import { buscarPagina, urlDoArquivo } from '../../services/editais.service'
 
-// Texto de cada página do edital, com a navegação e o trecho citado pela IA marcado. Ao receber um `trecho` (item
-// com pagina, source_excerpt, verificado, pagina_encontrada), vai para a página onde ele está.
+// Painel lateral com o texto de cada página do edital: só aparece quando alguém clica no selo de um trecho (a tela o
+// monta com v-if). Abre na página onde o `trecho` (item com pagina, source_excerpt, verificado, pagina_encontrada)
+// está e marca o trecho; clicar em outro selo só troca a página. Fecha no X ou com Esc (fechar-trecho).
 const props = defineProps({
   editalId: { type: String, required: true },
   totalPaginas: { type: Number, required: true },
@@ -36,16 +37,16 @@ function irPara(numero) {
 }
 
 watch(
-  () => props.editalId,
-  () => irPara(1),
+  () => props.trecho,
+  (item) => irPara(item ? (item.verificado ? item.pagina : (item.pagina_encontrada ?? item.pagina)) : 1),
   { immediate: true }
 )
-watch(
-  () => props.trecho,
-  (item) => {
-    if (item) irPara(item.verificado ? item.pagina : (item.pagina_encontrada ?? item.pagina))
-  }
-)
+
+function aoTeclar(evento) {
+  if (evento.key === 'Escape') emit('fechar-trecho')
+}
+onMounted(() => window.addEventListener('keydown', aoTeclar))
+onBeforeUnmount(() => window.removeEventListener('keydown', aoTeclar))
 
 function escaparRegex(texto) {
   return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -68,7 +69,7 @@ const partesDaPagina = computed(() => {
 </script>
 
 <template>
-  <section class="painel leitor">
+  <section class="painel leitor" aria-label="Texto da página">
     <div class="painel__cabecalho">
       <h2>Texto da página</h2>
       <div class="navegacao">
@@ -90,6 +91,17 @@ const partesDaPagina = computed(() => {
           :disabled="numeroPagina >= totalPaginas"
           @click="irPara(numeroPagina + 1)"
         />
+        <!-- #page: o leitor de PDF do navegador abre direto na página que está sendo lida aqui. -->
+        <a
+          :href="`${urlDoArquivo(editalId)}#page=${numeroPagina}`"
+          target="_blank"
+          rel="noopener"
+          class="ver-pdf"
+          title="Abrir esta página no PDF original"
+        >
+          <i class="pi pi-external-link"></i>ver no PDF
+        </a>
+        <Button icon="pi pi-times" text rounded size="small" aria-label="Fechar o texto da página" title="Fechar (Esc)" @click="emit('fechar-trecho')" />
       </div>
     </div>
     <div class="painel__corpo">
@@ -98,7 +110,6 @@ const partesDaPagina = computed(() => {
           <span class="rotulo">Trecho citado pela IA · p. {{ trecho.pagina ?? '?' }}</span>
           <p>“{{ trecho.source_excerpt }}”</p>
         </div>
-        <Button icon="pi pi-times" text rounded size="small" aria-label="Fechar trecho" @click="emit('fechar-trecho')" />
       </div>
       <p v-if="erro" class="erro">{{ erro }}</p>
       <div class="documento texto-pagina" :class="{ 'texto-pagina--carregando': carregando }">
@@ -115,14 +126,28 @@ const partesDaPagina = computed(() => {
 </template>
 
 <style scoped>
-/* O leitor acompanha a rolagem: o trecho aberto a partir do fim da lista aparece sem rolar de volta. */
+/* O painel acompanha a rolagem: o trecho aberto a partir do fim da lista aparece sem rolar de volta. Abaixo do
+   cabeçalho fixo do shell (56px). */
 .leitor {
   position: sticky;
-  top: 1rem;
+  top: calc(56px + 1rem);
+  animation: entrar 0.18s ease-out;
 }
+@keyframes entrar {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+/* Sem espaço para duas colunas, o painel cobre a tela. */
 @media (max-width: 1080px) {
   .leitor {
-    position: static;
+    position: fixed;
+    inset: 56px 0 0 0;
+    z-index: 35;
+    border-radius: 0;
+    overflow: auto;
+    box-shadow: 0 -8px 24px rgba(10, 12, 18, 0.18);
   }
 }
 .navegacao {
@@ -135,9 +160,25 @@ const partesDaPagina = computed(() => {
   text-align: center;
   padding: 0.3rem 0.4rem;
 }
+.ver-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ver-pdf:hover {
+  text-decoration: underline;
+}
+.ver-pdf .pi {
+  font-size: 0.75rem;
+}
 .texto-pagina {
-  min-height: 420px;
-  max-height: 70vh;
+  min-height: 300px;
+  max-height: calc(100vh - 56px - 13rem);
   overflow: auto;
 }
 .texto-pagina--carregando {

@@ -39,6 +39,11 @@ const EduMindPreset = definePreset(Aura, {
           contrastColor: 'var(--primary-foreground)',
           hoverColor: 'color-mix(in oklch, var(--primary) 85%, black)',
           activeColor: 'color-mix(in oklch, var(--primary) 70%, black)'
+        },
+        // O texto de exemplo dos campos mais claro que o padrão do Aura (o cinza dos textos secundários): é exemplo,
+        // não valor preenchido.
+        formField: {
+          placeholderColor: 'color-mix(in oklch, var(--muted-foreground) 50%, var(--border))'
         }
       }
     }

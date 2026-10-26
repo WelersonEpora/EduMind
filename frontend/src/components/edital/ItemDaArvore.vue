@@ -85,7 +85,18 @@ summary::marker,
 summary::-webkit-details-marker {
   color: var(--muted-foreground);
 }
+/* Cada bloco é uma seção da árvore: título maior e uma linha separando do bloco anterior. */
+.item--bloco + .item--bloco {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.item--bloco > details > summary {
+  padding: 0.4rem 0;
+}
 .item--bloco > details > summary .texto {
+  font-family: var(--font-display);
+  font-size: 1rem;
   font-weight: 700;
 }
 .item--disciplina > details > summary .texto {

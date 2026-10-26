@@ -18,7 +18,6 @@ import {
   classificarQuestoes,
   lerQuestoes
 } from '../services/provas.service'
-import { nomeDoEdital } from '../composables/useEditais'
 
 // Provas anteriores do edital (etapa 3a). O sistema não baixa provas: sugere buscas no Google (restritas ao PCI
 // Concursos e ao Estudegratis, e uma aberta) e o orientador baixa e envia o PDF da prova e o do gabarito. As provas
@@ -157,13 +156,10 @@ const resumo = computed(() => {
 
   <template v-if="edital && area">
     <div class="pagina-cabecalho">
-      <div>
-        <h1>Provas anteriores · {{ nomeDoEdital(edital) }}</h1>
-        <p>
-          Provas de concursos anteriores para comentar e para servir de modelo. O sistema não baixa provas: use as buscas
-          abaixo, baixe a prova e o gabarito no navegador e envie aqui. Prefira o gabarito oficial definitivo.
-        </p>
-      </div>
+      <p>
+        Provas de concursos anteriores para comentar e para servir de modelo. O sistema não baixa provas: use as buscas
+        abaixo, baixe a prova e o gabarito no navegador e envie aqui. Prefira o gabarito oficial definitivo.
+      </p>
     </div>
 
     <div class="grade">

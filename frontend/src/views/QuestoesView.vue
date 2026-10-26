@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
@@ -11,7 +11,6 @@ import { listarNormas } from '../services/editais.service'
 
 // Questões lidas de uma prova (etapa 3b). As conferidas valem direto; a tela abre nas que precisam de revisão.
 const route = useRoute()
-const router = useRouter()
 const toast = useToast()
 
 const dados = ref(null)
@@ -104,15 +103,15 @@ const aoConferirGabarito = (respostas) => salvarGabarito(() => conferirGabarito(
   <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
 
   <template v-if="dados">
+    <router-link :to="{ name: 'provas', params: { id: route.params.id } }" class="voltar-topo"><i class="pi pi-arrow-left"></i>Provas anteriores</router-link>
     <div class="pagina-cabecalho">
       <div>
-        <h1>Questões · {{ titulo }}</h1>
+        <h2 class="titulo">Questões · {{ titulo }}</h2>
         <p>
           Lidas pela IA e conferidas por código: enunciado e alternativas existem no PDF da prova e a resposta existe no
           PDF do gabarito. As que não bateram ficam para você decidir.
         </p>
       </div>
-      <a href="#" class="voltar" @click.prevent="router.back()">← Provas</a>
     </div>
 
     <Message v-if="dados.prova.leitura_status === 'lendo'" severity="info" :closable="false">
@@ -154,8 +153,8 @@ const aoConferirGabarito = (respostas) => salvarGabarito(() => conferirGabarito(
 </template>
 
 <style scoped>
-.voltar {
-  white-space: nowrap;
+.titulo {
+  font-size: 1.1rem;
 }
 .filtro {
   margin: 0.5rem 0 1rem;

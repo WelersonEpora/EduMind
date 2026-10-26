@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
+import { useEditais } from '../composables/useEditais'
 import Message from 'primevue/message'
 import FonteNorma from '../components/fontes/FonteNorma.vue'
 import {
@@ -15,12 +15,13 @@ import {
   enviarVersaoDaNorma,
   processarVersaoDaNorma
 } from '../services/editais.service'
-import { nomeDoEdital } from '../composables/useEditais'
 
 // Fontes das normas do edital (etapa 2a-1): as normas citadas nos itens aprovados na revisão, a identidade de cada
 // uma (que a coloca na biblioteca), a URL oficial e o texto por upload manual.
 const route = useRoute()
 const toast = useToast()
+// A lista da equipe traz o andamento (pendentes nas abas e situação): cada alteração aqui o muda.
+const { recarregar: recarregarEditais } = useEditais()
 
 const edital = ref(null)
 const fontes = ref([])
@@ -53,6 +54,7 @@ async function executar(fonte, acao, falha, sucesso) {
   try {
     await acao()
     fontes.value = await buscarFontes(edital.value.id)
+    recarregarEditais()
     if (sucesso) toast.add({ severity: 'success', summary: sucesso, life: 4000 })
   } catch (e) {
     toast.add({ severity: 'error', summary: falha, detail: e.message, life: 8000 })
@@ -88,21 +90,10 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
 
   <template v-if="edital">
     <div class="pagina-cabecalho">
-      <div>
-        <h1>Fontes · {{ nomeDoEdital(edital) }}</h1>
-        <p>
-          As normas citadas nos itens aprovados na revisão. Confirme a identidade de cada uma (ela entra na biblioteca,
-          compartilhada entre editais), ache a URL oficial e envie o texto.
-        </p>
-      </div>
-      <div class="acoes">
-        <router-link :to="{ name: 'revisao', params: { id: edital.id } }">
-          <Button label="Revisão" icon="pi pi-arrow-left" severity="secondary" outlined size="small" />
-        </router-link>
-        <router-link :to="{ name: 'cobertura', params: { id: edital.id } }">
-          <Button label="Cobertura" icon="pi pi-arrow-right" icon-pos="right" size="small" />
-        </router-link>
-      </div>
+      <p>
+        As normas citadas nos itens aprovados na revisão. Confirme a identidade de cada uma (ela entra na biblioteca,
+        compartilhada entre editais), ache a URL oficial e envie o texto.
+      </p>
     </div>
 
     <Message v-if="fontes.length === 0" severity="info" :closable="false">
@@ -134,10 +125,6 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
 </template>
 
 <style scoped>
-.acoes {
-  display: flex;
-  gap: 0.5rem;
-}
 .resumo {
   margin: 0 0 1rem;
   color: var(--muted-foreground);

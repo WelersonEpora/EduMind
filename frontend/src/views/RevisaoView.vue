@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
+import { useEditais } from '../composables/useEditais'
 import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import LeitorDePaginas from '../components/edital/LeitorDePaginas.vue'
@@ -16,17 +16,22 @@ import {
   revisarMetadado,
   revisarNorma
 } from '../services/editais.service'
-import { nomeDoEdital } from '../composables/useEditais'
 
 // Revisão do orientador (etapa 1c): cada item extraído pela IA é aprovado, rejeitado ou corrigido, conferindo o
 // trecho citado no texto da página ao lado.
 const route = useRoute()
 const toast = useToast()
+// A lista da equipe traz o andamento (pendentes nas abas e situação): cada alteração aqui o muda.
+const { recarregar: recarregarEditais } = useEditais()
 
 const edital = ref(null)
 const conteudo = ref([])
 const erro = ref(null)
 const trechoAberto = ref(null)
+// Clicar no selo do trecho que já está aberto fecha o painel; em outro selo, troca o trecho.
+function alternarTrecho(item) {
+  trechoAberto.value = trechoAberto.value === item ? null : item
+}
 const ocupado = ref(false)
 const soPendentes = ref(false)
 
@@ -90,7 +95,9 @@ const percentual = (n) => (progresso.value.total ? `${(100 * n) / progresso.valu
 async function executar(acao, mensagemDeErro) {
   ocupado.value = true
   try {
-    return await acao()
+    const resultado = await acao()
+    recarregarEditais()
+    return resultado
   } catch (e) {
     toast.add({ severity: 'error', summary: mensagemDeErro, detail: e.message, life: 6000 })
     return null
@@ -140,23 +147,17 @@ async function aoAprovarVerificados(disciplina) {
 
   <template v-if="edital">
     <div class="pagina-cabecalho">
-      <div>
-        <h1>Revisão · {{ nomeDoEdital(edital) }}</h1>
-        <p>
-          Aprove, rejeite ou corrija cada item extraído pela IA. Clique no selo da página para conferir o trecho citado no
-          texto do edital.
-        </p>
-      </div>
-      <router-link :to="{ name: 'edital', params: { id: edital.id } }">
-        <Button label="Visão geral" icon="pi pi-arrow-left" severity="secondary" outlined size="small" />
-      </router-link>
+      <p>
+        Aprove, rejeite ou corrija cada item extraído pela IA. Clique no selo da página para conferir o trecho citado no
+        texto do edital.
+      </p>
     </div>
 
     <Message v-if="edital.status !== 'extraido'" severity="info" :closable="false">
       A revisão fica disponível quando a extração com IA termina. Use "Extrair com IA" na visão geral do edital.
     </Message>
 
-    <div v-else class="grade">
+    <div v-else class="grade" :class="{ 'grade--com-leitor': trechoAberto }">
       <div class="coluna">
         <section class="painel">
           <div class="painel__cabecalho">
@@ -181,12 +182,12 @@ async function aoAprovarVerificados(disciplina) {
         </section>
 
         <section v-if="edital.metadados" class="painel">
-          <div class="painel__cabecalho"><h2>Metadados</h2></div>
+          <div class="painel__cabecalho"><h2>Dados do concurso</h2></div>
           <div class="painel__corpo">
             <MetadadosRevisaveis
               :metadados="edital.metadados"
               :desativado="ocupado"
-              @ver-trecho="trechoAberto = $event"
+              @ver-trecho="alternarTrecho"
               @revisar="aoRevisarMetadado"
             />
           </div>
@@ -205,7 +206,7 @@ async function aoAprovarVerificados(disciplina) {
                 :filhos="filhos"
                 :visiveis="visiveis"
                 :desativado="ocupado"
-                @ver-trecho="trechoAberto = $event"
+                @ver-trecho="alternarTrecho"
                 @revisar="aoRevisarItem"
                 @revisar-norma="aoRevisarNorma"
                 @aprovar-verificados="aoAprovarVerificados"
@@ -215,7 +216,9 @@ async function aoAprovarVerificados(disciplina) {
         </section>
       </div>
 
+      <!-- O texto da página só aparece quando alguém clica no selo de um trecho. -->
       <LeitorDePaginas
+        v-if="trechoAberto"
         :edital-id="edital.id"
         :total-paginas="edital.total_paginas"
         :trecho="trechoAberto"
@@ -228,9 +231,13 @@ async function aoAprovarVerificados(disciplina) {
 <style scoped>
 .grade {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
+}
+/* Com o texto da página aberto: o conteúdo à esquerda (60%) e o painel à direita (40%). */
+.grade--com-leitor {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
 }
 .coluna {
   display: grid;
@@ -293,8 +300,9 @@ async function aoAprovarVerificados(disciplina) {
   margin: 0;
   color: var(--muted-foreground);
 }
+/* Sem espaço para duas colunas, o painel cobre a tela (ver LeitorDePaginas). */
 @media (max-width: 1080px) {
-  .grade {
+  .grade--com-leitor {
     grid-template-columns: minmax(0, 1fr);
   }
 }

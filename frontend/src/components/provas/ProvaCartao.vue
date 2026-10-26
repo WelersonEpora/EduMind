@@ -154,7 +154,7 @@ function excluir() {
             <Tag v-if="prova.questoes.descartada" :value="`${prova.questoes.descartada} descartadas`" severity="secondary" />
             <Tag v-if="versaoAEscolher" value="escolha a versão do gabarito" severity="warn" icon="pi pi-list-check" />
             <Tag v-if="gabaritoAConferir" value="gabarito a conferir" severity="warn" icon="pi pi-image" />
-            <router-link :to="{ name: 'questoes', params: { provaId: prova.id } }">ver questões</router-link>
+            <router-link :to="{ name: 'questoes', params: { id: $route.params.id, provaId: prova.id } }">ver questões</router-link>
           </p>
           <p v-for="aviso in prova.leitura?.avisos || []" :key="aviso" class="alerta"><i class="pi pi-exclamation-triangle" /> {{ aviso }}</p>
 

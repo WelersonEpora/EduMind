@@ -3,17 +3,17 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import MetadadosEdital from '../components/edital/MetadadosEdital.vue'
 import ConteudoProgramatico from '../components/edital/ConteudoProgramatico.vue'
 import LeitorDePaginas from '../components/edital/LeitorDePaginas.vue'
-import { buscarConteudo, buscarEdital, iniciarExtracao, urlDoArquivo } from '../services/editais.service'
-import { nomeDoEdital } from '../composables/useEditais'
-import { formatarBytes, formatarDataHora, STATUS_EDITAL } from '../utils/formatar'
+import { buscarConteudo, buscarEdital, iniciarExtracao } from '../services/editais.service'
+import { useEditais } from '../composables/useEditais'
 
 const route = useRoute()
 const toast = useToast()
+// A lista da equipe dá o nome do edital na casca e a situação na tela de editais: a extração muda os dois.
+const { recarregar: recarregarEditais } = useEditais()
 
 const edital = ref(null)
 const erro = ref(null)
@@ -21,6 +21,10 @@ const erro = ref(null)
 const conteudo = ref([])
 // Item cujo trecho está aberto no leitor (clique no selo de um metadado ou de um item da árvore).
 const trechoAberto = ref(null)
+// Clicar no selo do trecho que já está aberto fecha o painel; em outro selo, troca o trecho.
+function alternarTrecho(item) {
+  trechoAberto.value = trechoAberto.value === item ? null : item
+}
 const iniciando = ref(false)
 
 async function carregarConteudo() {
@@ -44,6 +48,7 @@ function acompanharExtracao() {
       if (atual.status === 'extraindo') return
       pararConsulta()
       edital.value = atual
+      recarregarEditais()
       await carregarConteudo()
       if (atual.status === 'extraido') {
         toast.add({ severity: 'success', summary: 'Edital extraído', detail: 'Confira os trechos citados.', life: 5000 })
@@ -75,7 +80,7 @@ async function carregar(id) {
 async function extrair() {
   const confirmado =
     !edital.value.metadados ||
-    window.confirm('Extrair de novo? Os metadados e o conteúdo programático atuais serão substituídos pelo novo resultado.')
+    window.confirm('Extrair de novo? Os dados do concurso e o conteúdo programático atuais serão substituídos pelo novo resultado.')
   if (!confirmado) return
   iniciando.value = true
   try {
@@ -89,6 +94,7 @@ async function extrair() {
       edital.value = await iniciarExtracao(edital.value.id, { confirmarPerdaDaRevisao: true })
     }
     trechoAberto.value = null
+    recarregarEditais()
     acompanharExtracao()
   } catch (e) {
     toast.add({ severity: 'error', summary: 'Não foi possível extrair', detail: e.message, life: 6000 })
@@ -106,39 +112,11 @@ watch(() => route.params.id, carregar, { immediate: true })
   <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
 
   <template v-if="edital">
-    <div class="pagina-cabecalho">
-      <div>
-        <h1>{{ nomeDoEdital(edital) }}</h1>
-        <p>Visão geral do edital. O texto de cada página fica guardado para conferir os trechos citados pela IA.</p>
-      </div>
-      <div class="acoes">
-        <router-link v-if="edital.status === 'extraido'" :to="{ name: 'revisao', params: { id: edital.id } }">
-          <Button label="Revisar" icon="pi pi-check-square" size="small" />
-        </router-link>
-        <a :href="urlDoArquivo(edital.id)" target="_blank" rel="noopener">
-          <Button label="Abrir PDF original" icon="pi pi-external-link" severity="secondary" outlined size="small" />
-        </a>
-      </div>
-    </div>
-
-    <div class="grade">
+    <div class="grade" :class="{ 'grade--com-leitor': trechoAberto }">
       <div class="coluna">
         <section class="painel">
           <div class="painel__cabecalho">
-            <h2>Arquivo</h2>
-            <Tag :value="STATUS_EDITAL[edital.status].rotulo" :severity="STATUS_EDITAL[edital.status].severidade" />
-          </div>
-          <dl class="dados">
-            <div><dt class="rotulo">Nome</dt><dd>{{ edital.arquivo_nome }}</dd></div>
-            <div><dt class="rotulo">Páginas</dt><dd>{{ edital.total_paginas }}</dd></div>
-            <div><dt class="rotulo">Tamanho</dt><dd>{{ formatarBytes(edital.arquivo_bytes) }}</dd></div>
-            <div><dt class="rotulo">Enviado em</dt><dd>{{ formatarDataHora(edital.created_at) }}</dd></div>
-          </dl>
-        </section>
-
-        <section class="painel">
-          <div class="painel__cabecalho">
-            <h2>Metadados</h2>
+            <h2>Dados do concurso</h2>
             <Button
               :label="edital.metadados ? 'Extrair de novo' : 'Extrair com IA'"
               icon="pi pi-sparkles"
@@ -158,7 +136,7 @@ watch(() => route.params.id, carregar, { immediate: true })
           <MetadadosEdital
             v-if="edital.metadados && edital.status !== 'extraindo'"
             :metadados="edital.metadados"
-            @ver-trecho="trechoAberto = $event"
+            @ver-trecho="alternarTrecho"
           />
           <div v-else-if="edital.status === 'texto_extraido'" class="painel__corpo pendente">
             A IA extrai banca, órgão, cargo, data de publicação, blocos e disciplinas com o número de questões, regras de
@@ -169,15 +147,17 @@ watch(() => route.params.id, carregar, { immediate: true })
 
         <section v-if="edital.status === 'extraido'" class="painel">
           <div class="painel__cabecalho"><h2>Conteúdo programático</h2></div>
-          <ConteudoProgramatico v-if="conteudo.length" :itens="conteudo" @ver-trecho="trechoAberto = $event" />
+          <ConteudoProgramatico v-if="conteudo.length" :itens="conteudo" @ver-trecho="alternarTrecho" />
           <div v-else class="painel__corpo pendente">
             Nenhum item extraído. Se este edital foi extraído antes da árvore do conteúdo existir, use "Extrair de novo"
-            em Metadados.
+            em Dados do concurso.
           </div>
         </section>
       </div>
 
+      <!-- O texto da página só aparece quando alguém clica no selo de um trecho. -->
       <LeitorDePaginas
+        v-if="trechoAberto"
         :edital-id="edital.id"
         :total-paginas="edital.total_paginas"
         :trecho="trechoAberto"
@@ -188,43 +168,27 @@ watch(() => route.params.id, carregar, { immediate: true })
 </template>
 
 <style scoped>
-.acoes {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
 .grade {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
+/* Com o texto da página aberto: o conteúdo à esquerda (60%) e o painel à direita (40%). */
+.grade--com-leitor {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
 .coluna {
   display: grid;
-  gap: 1.25rem;
-}
-.dados {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-}
-.dados div {
-  padding: 0.65rem 1rem;
-  border-bottom: 1px solid var(--border);
-  display: grid;
-  gap: 0.15rem;
+  gap: 1.75rem;
   min-width: 0;
-}
-.dados dd {
-  margin: 0;
-  font-weight: 600;
-  overflow-wrap: anywhere;
 }
 .pendente {
   color: var(--muted-foreground);
 }
+/* Sem espaço para duas colunas, o painel cobre a tela (ver LeitorDePaginas). */
 @media (max-width: 1080px) {
-  .grade {
+  .grade--com-leitor {
     grid-template-columns: minmax(0, 1fr);
   }
 }

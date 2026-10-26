@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import EditaisView from '../views/EditaisView.vue'
+import EditalLayout from '../components/layout/EditalLayout.vue'
 import EditalView from '../views/EditalView.vue'
 import RevisaoView from '../views/RevisaoView.vue'
 import FontesView from '../views/FontesView.vue'
@@ -22,13 +23,20 @@ const router = createRouter({
     // publica: abre sem sessão e sem o menu.
     { path: '/entrar', name: 'entrar', component: LoginView, meta: { publica: true } },
     { path: '/editais', name: 'editais', component: EditaisView },
-    // larguraTotal: a tela usa toda a largura disponível, sem o limite de leitura do shell.
-    { path: '/editais/:id', name: 'edital', component: EditalView, meta: { larguraTotal: true } },
-    { path: '/editais/:id/revisao', name: 'revisao', component: RevisaoView, meta: { larguraTotal: true } },
-    { path: '/editais/:id/fontes', name: 'fontes', component: FontesView, meta: { larguraTotal: true } },
-    { path: '/editais/:id/cobertura', name: 'cobertura', component: CoberturaView, meta: { larguraTotal: true } },
-    { path: '/editais/:id/provas', name: 'provas', component: ProvasView, meta: { larguraTotal: true } },
-    { path: '/provas/:provaId/questoes', name: 'questoes', component: QuestoesView, meta: { larguraTotal: true } },
+    // Telas de um edital: a casca (EditalLayout) mostra o nome e as abas; cada aba é uma rota filha, com URL própria.
+    {
+      path: '/editais/:id',
+      component: EditalLayout,
+      children: [
+        { path: '', name: 'edital', component: EditalView },
+        { path: 'revisao', name: 'revisao', component: RevisaoView },
+        { path: 'fontes', name: 'fontes', component: FontesView },
+        { path: 'cobertura', name: 'cobertura', component: CoberturaView },
+        { path: 'provas', name: 'provas', component: ProvasView },
+        // A prova é da equipe e pode estar em mais de um edital: o :id diz de qual edital se chegou.
+        { path: 'provas/:provaId', name: 'questoes', component: QuestoesView }
+      ]
+    },
     { path: '/normas', name: 'normas', component: BibliotecaView },
     { path: '/normas/:id', name: 'norma', component: NormaView },
     { path: '/equipe', name: 'equipe', component: EquipeView },

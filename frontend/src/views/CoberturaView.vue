@@ -8,7 +8,6 @@ import SelectButton from 'primevue/selectbutton'
 import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import { buscarArtigosDaVersao, buscarCobertura, buscarEdital, conferirEstrutura } from '../services/editais.service'
-import { nomeDoEdital } from '../composables/useEditais'
 import { nomeDaNorma, partesDoArtigo } from '../utils/normas'
 
 // Cobertura do edital (etapa 2c): cada artigo pedido nos itens aprovados, cruzado com o texto da norma na biblioteca.
@@ -167,16 +166,10 @@ const janelaVisivel = computed({
 
   <template v-if="edital">
     <div class="pagina-cabecalho">
-      <div>
-        <h1>Cobertura · {{ nomeDoEdital(edital) }}</h1>
-        <p>
-          Cada artigo pedido nos itens aprovados, procurado no texto da norma. Clique num artigo para ler o texto.
-          <template v-if="dataDoEdital">Edital publicado em {{ dataDoEdital }}.</template>
-        </p>
-      </div>
-      <router-link :to="{ name: 'fontes', params: { id: edital.id } }">
-        <Button label="Fontes" icon="pi pi-arrow-left" severity="secondary" outlined size="small" />
-      </router-link>
+      <p>
+        Cada artigo pedido nos itens aprovados, procurado no texto da norma. Clique num artigo para ler o texto.
+        <template v-if="dataDoEdital">Edital publicado em {{ dataDoEdital }}.</template>
+      </p>
     </div>
 
     <template v-if="cobertura">
@@ -376,7 +369,7 @@ const janelaVisivel = computed({
         <router-link
           v-for="q in aberto.artigo.questoes"
           :key="q.questao_id"
-          :to="{ name: 'questoes', params: { provaId: q.prova_id } }"
+          :to="{ name: 'questoes', params: { id: edital.id, provaId: q.prova_id } }"
         >
           {{ q.banca }} {{ q.ano }} · questão {{ q.numero }}<template v-if="q.papel === 'relacionado'"> (relacionado)</template>
         </router-link>

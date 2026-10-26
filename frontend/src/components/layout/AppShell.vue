@@ -2,16 +2,15 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Select from 'primevue/select'
-import { useEditais, nomeDoEdital } from '../../composables/useEditais'
+import { useEditais } from '../../composables/useEditais'
 import { useSessao, NOMES_DOS_PAPEIS } from '../../composables/useSessao'
 import { version } from '../../../package.json'
 
 // Topbar + menu lateral, no padrão do AgroMind (DashboardShell.vue): menu claro, item ativo em
-// verde-claro, recolhível no desktop e gaveta no celular. O grupo "Edital" funciona como o grupo
-// "Espaços" do FinMind: um seletor do edital ativo e, abaixo, o que existe dentro dele.
+// verde-claro, recolhível no desktop e gaveta no celular. O menu só tem o que é global; o edital se
+// escolhe na lista de Editais e as telas dele ficam em abas dentro do próprio edital (EditalLayout).
 
 const CHAVE_RECOLHIDO = 'edumind-menu-recolhido'
-const CHAVE_EDITAL_ATIVO = 'edumind-edital-ativo'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,7 +19,6 @@ const { usuario, equipes, equipeAtual, trocarEquipe, sair } = useSessao()
 
 const recolhido = ref(lerPreferencia(CHAVE_RECOLHIDO) === '1')
 const gavetaAberta = ref(false)
-const editalAtivoId = ref(lerPreferencia(CHAVE_EDITAL_ATIVO))
 
 function lerPreferencia(chave) {
   try {
@@ -38,28 +36,8 @@ function salvarPreferencia(chave, valor) {
   }
 }
 
-// Telas de um edital: o :id da rota é o edital. Em /normas/:id é uma norma.
-const ROTAS_DO_EDITAL = ['edital', 'revisao', 'fontes', 'cobertura', 'provas']
-
-// Abrir um edital pela URL também o torna o edital ativo do menu.
-watch(
-  () => (ROTAS_DO_EDITAL.includes(route.name) ? route.params.id : null),
-  (id) => {
-    if (id) {
-      editalAtivoId.value = id
-      salvarPreferencia(CHAVE_EDITAL_ATIVO, id)
-    }
-  },
-  { immediate: true }
-)
-
-const opcoesDeEdital = computed(() => editais.value.map((e) => ({ id: e.id, nome: nomeDoEdital(e) })))
-const editalAtivo = computed(() => editais.value.find((e) => e.id === editalAtivoId.value) || null)
-
-function trocarEdital(id) {
-  fecharGaveta()
-  router.push({ name: 'edital', params: { id } })
-}
+// Dentro de um edital (qualquer aba), o item "Editais" continua marcado.
+const emEditais = computed(() => route.path === '/editais' || route.path.startsWith('/editais/'))
 
 function alternarMenu() {
   if (window.matchMedia('(max-width: 767px)').matches) {
@@ -73,15 +51,6 @@ function alternarMenu() {
 function fecharGaveta() {
   gavetaAberta.value = false
 }
-
-// Itens do edital ainda não implementados aparecem desativados, com a etapa em que chegam.
-const itensDoEdital = computed(() => [
-  { rotulo: 'Visão geral', icone: 'pi-file', rota: 'edital', para: editalAtivo.value && { name: 'edital', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Revisão', icone: 'pi-check-square', rota: 'revisao', para: editalAtivo.value && { name: 'revisao', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Fontes', icone: 'pi-globe', rota: 'fontes', para: editalAtivo.value && { name: 'fontes', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Cobertura', icone: 'pi-chart-bar', rota: 'cobertura', para: editalAtivo.value && { name: 'cobertura', params: { id: editalAtivo.value.id } } },
-  { rotulo: 'Provas anteriores', icone: 'pi-file-edit', rota: 'provas', para: editalAtivo.value && { name: 'provas', params: { id: editalAtivo.value.id } } }
-])
 
 // A lista de editais é da equipe (etapa 4a): carrega ao entrar e de novo a cada troca de equipe.
 watch(
@@ -114,9 +83,6 @@ async function sairDoSistema() {
         <i class="pi pi-bars"></i>
       </button>
       <router-link to="/editais" class="shell__marca">Edu<b>Mind</b><small>apoio ao orientador</small></router-link>
-      <span v-if="ROTAS_DO_EDITAL.includes(route.name) && editalAtivo" class="shell__contexto">
-        Edital ativo: <strong>{{ nomeDoEdital(editalAtivo) }}</strong>
-      </span>
       <div class="shell__usuario">
         <Select
           v-if="equipes.length > 1"
@@ -141,7 +107,7 @@ async function sairDoSistema() {
     <div class="shell__fundo-gaveta" :class="{ 'shell__fundo-gaveta--visivel': gavetaAberta }" @click="fecharGaveta"></div>
 
     <nav class="shell__sidebar" :class="{ 'shell__sidebar--aberta': gavetaAberta }" aria-label="Menu">
-      <router-link to="/editais" class="shell__item" :class="{ 'shell__item--ativo': route.name === 'editais' }" title="Editais" @click="fecharGaveta">
+      <router-link to="/editais" class="shell__item" :class="{ 'shell__item--ativo': emEditais }" title="Editais" @click="fecharGaveta">
         <i class="pi pi-folder-open"></i><span class="shell__rotulo">Editais</span>
         <span v-if="editais.length" class="shell__contador">{{ editais.length }}</span>
       </router-link>
@@ -154,37 +120,6 @@ async function sairDoSistema() {
       >
         <i class="pi pi-book"></i><span class="shell__rotulo">Biblioteca de normas</span>
       </router-link>
-
-      <div class="shell__grupo"><span class="shell__rotulo">Edital</span></div>
-      <div v-if="opcoesDeEdital.length" class="shell__seletor">
-        <Select
-          :model-value="editalAtivoId"
-          :options="opcoesDeEdital"
-          option-label="nome"
-          option-value="id"
-          placeholder="Escolha um edital"
-          class="w-full"
-          aria-label="Edital ativo"
-          @update:model-value="trocarEdital"
-        />
-      </div>
-      <p v-else class="shell__vazio shell__rotulo">Nenhum edital enviado ainda.</p>
-      <template v-for="item in itensDoEdital" :key="item.rotulo">
-        <router-link
-          v-if="item.para"
-          :to="item.para"
-          class="shell__item"
-          :class="{ 'shell__item--ativo': route.name === item.rota }"
-          :title="item.rotulo"
-          @click="fecharGaveta"
-        >
-          <i class="pi" :class="item.icone"></i><span class="shell__rotulo">{{ item.rotulo }}</span>
-        </router-link>
-        <span v-else class="shell__item shell__item--desativado" :title="`${item.rotulo} · etapa ${item.etapa || '1b'}`">
-          <i class="pi" :class="item.icone"></i><span class="shell__rotulo">{{ item.rotulo }}</span>
-          <em class="shell__etapa">{{ item.etapa ? `etapa ${item.etapa}` : 'escolha um edital' }}</em>
-        </span>
-      </template>
 
       <div class="shell__grupo"><span class="shell__rotulo">Equipe</span></div>
       <router-link
@@ -217,9 +152,7 @@ async function sairDoSistema() {
     </nav>
 
     <main class="shell__conteudo">
-      <div class="shell__largura" :class="{ 'shell__largura--total': route.meta.larguraTotal }">
-        <slot />
-      </div>
+      <slot />
     </main>
   </div>
 </template>
@@ -278,19 +211,6 @@ async function sairDoSistema() {
   font-size: 0.75rem;
   color: var(--muted-foreground);
 }
-.shell__contexto {
-  margin-left: auto;
-  flex: 0 1 auto;
-  font-size: 0.82rem;
-  color: var(--muted-foreground);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.shell__contexto strong {
-  color: var(--foreground);
-}
 .shell__usuario {
   margin-left: auto;
   display: flex;
@@ -298,9 +218,6 @@ async function sairDoSistema() {
   gap: 0.6rem;
   flex-shrink: 0;
   font-size: 0.82rem;
-}
-.shell__contexto + .shell__usuario {
-  margin-left: 1rem;
 }
 .shell__equipe {
   font-size: 0.82rem;
@@ -409,18 +326,6 @@ async function sairDoSistema() {
   color: var(--muted-foreground);
   font-weight: 600;
 }
-.shell__seletor {
-  padding: 0 0 0.25rem;
-}
-.shell__seletor :deep(.p-select) {
-  width: 100%;
-  font-size: 0.82rem;
-}
-.shell__vazio {
-  margin: 0 0.75rem 0.25rem;
-  font-size: 0.8rem;
-  color: var(--muted-foreground);
-}
 .shell__rodape {
   margin-top: auto;
   padding: 0.6rem 0.75rem 0;
@@ -434,12 +339,6 @@ async function sairDoSistema() {
   min-width: 0;
   padding: 1.5rem;
 }
-.shell__largura {
-  max-width: 1240px;
-}
-.shell__largura--total {
-  max-width: none;
-}
 
 .shell__fundo-gaveta {
   display: none;
@@ -452,8 +351,7 @@ async function sairDoSistema() {
   }
   .shell--recolhido .shell__rotulo,
   .shell--recolhido .shell__etapa,
-  .shell--recolhido .shell__contador,
-  .shell--recolhido .shell__seletor {
+  .shell--recolhido .shell__contador {
     display: none;
   }
   .shell--recolhido .shell__grupo {
@@ -505,7 +403,6 @@ async function sairDoSistema() {
     padding: 1rem;
   }
   .shell__marca small,
-  .shell__contexto,
   .shell__nome,
   .shell__equipe-nome {
     display: none;

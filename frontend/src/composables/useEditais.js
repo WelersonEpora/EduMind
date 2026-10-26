@@ -1,8 +1,8 @@
 import { ref } from 'vue'
 import { listarEditais } from '../services/editais.service'
 
-// Lista de editais compartilhada entre o menu lateral (seletor do edital ativo) e a tela de editais.
-// Singleton de módulo: recarregar em um lugar atualiza os dois.
+// Lista de editais da equipe, compartilhada entre o menu lateral (contador), a tela de editais e a casca do edital (nome).
+// Singleton de módulo: recarregar em um lugar atualiza todos.
 const editais = ref([])
 const carregando = ref(false)
 const erro = ref(null)

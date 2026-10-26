@@ -4,7 +4,9 @@ import Message from 'primevue/message'
 import TrechoCitado from './TrechoCitado.vue'
 import { formatarDataHora } from '../../utils/formatar'
 
-// Metadados extraídos pela IA (etapa 1b-1), cada item com o selo da conferência do trecho.
+// Dados do concurso (os metadados extraídos pela IA na etapa 1b-1, com as correções da Revisão), cada item com o selo
+// da conferência do trecho. Uma ficha compacta: os campos numa linha, a prova objetiva em tabela e, ao lado, regras de
+// corte e discursiva (que descem para baixo da tabela quando falta largura, como com o texto da página aberto).
 const props = defineProps({
   metadados: { type: Object, required: true }
 })
@@ -40,20 +42,24 @@ const totalDeQuestoes = computed(() => {
   return disciplinas.reduce((soma, d) => soma + d.questoes, 0)
 })
 
+// Detalhe técnico da extração (modelo, chave, tokens): fica no title da linha de rodapé, fora da leitura do orientador.
+const detalheDaExtracao = computed(() =>
+  (props.metadados.extracao?.chamadas || [])
+    .map((c) => `${c.prompt} · ${c.modelo} · chave ${c.chave} · ${c.tokens ?? '?'} tokens`)
+    .join('\n')
+)
+
+const questoes = (n) => (n == null ? '—' : String(n))
+
 const ver = (item) => emit('ver-trecho', item)
 </script>
 
 <template>
-  <div class="metadados">
-    <p class="resumo">
-      <b>{{ verificados }} de {{ itens.length }}</b> trechos conferidos na página citada. Clique no selo para ver o
-      trecho no texto.
-    </p>
-
+  <div class="ficha">
     <Message v-for="aviso in metadados.avisos" :key="aviso" severity="warn" :closable="false">{{ aviso }}</Message>
 
     <dl class="campos">
-      <div v-for="[chave, rotulo] in CAMPOS" :key="chave" class="linha">
+      <div v-for="[chave, rotulo] in CAMPOS" :key="chave" class="campo">
         <dt class="rotulo">{{ rotulo }}</dt>
         <dd v-if="metadados.campos[chave]">
           <span>{{ formatarValor(chave, metadados.campos[chave].valor) }}</span>
@@ -63,129 +69,176 @@ const ver = (item) => emit('ver-trecho', item)
       </div>
     </dl>
 
-    <h3>
-      Prova objetiva
-      <span v-if="totalDeQuestoes != null" class="mono">· {{ totalDeQuestoes }} questões</span>
-    </h3>
-    <p v-if="metadados.blocos.length === 0" class="ausente">Nenhum bloco ou disciplina encontrado no edital.</p>
-    <div v-for="(bloco, i) in metadados.blocos" :key="i" class="bloco">
-      <div class="bloco__titulo">
-        <b>{{ bloco.nome }}</b>
-        <TrechoCitado :item="bloco" @ver="ver" />
-      </div>
-      <ul class="disciplinas">
-        <li v-for="(disciplina, j) in bloco.disciplinas" :key="j">
-          <span>{{ disciplina.nome }}</span>
-          <span class="questoes">
-            {{ disciplina.questoes == null ? 'questões não informadas' : `${disciplina.questoes} ${disciplina.questoes === 1 ? 'questão' : 'questões'}` }}
-          </span>
-          <TrechoCitado :item="disciplina" @ver="ver" />
-        </li>
-      </ul>
+    <div class="corpo">
+      <section>
+        <h3>
+          Prova objetiva
+          <span v-if="totalDeQuestoes != null" class="total">· {{ totalDeQuestoes }} questões</span>
+        </h3>
+        <p v-if="metadados.blocos.length === 0" class="ausente">Nenhum bloco ou disciplina encontrado no edital.</p>
+        <table v-else class="objetiva">
+          <thead>
+            <tr>
+              <th>Bloco</th>
+              <th>Disciplina</th>
+              <th class="numero">Questões</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody v-for="(bloco, i) in metadados.blocos" :key="i">
+            <tr v-for="(disciplina, j) in bloco.disciplinas.length ? bloco.disciplinas : [null]" :key="j">
+              <td v-if="j === 0" :rowspan="Math.max(bloco.disciplinas.length, 1)" class="bloco">
+                <span>{{ bloco.nome }}</span>
+                <TrechoCitado :item="bloco" @ver="ver" />
+              </td>
+              <template v-if="disciplina">
+                <td>{{ disciplina.nome }}</td>
+                <td class="numero">{{ questoes(disciplina.questoes) }}</td>
+                <td class="selo"><TrechoCitado :item="disciplina" @ver="ver" /></td>
+              </template>
+              <td v-else colspan="3" class="ausente">nenhuma disciplina</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="regras">
+        <h3>Regras de corte</h3>
+        <p v-if="metadados.regras_de_corte.length === 0" class="ausente">Nenhuma regra de corte encontrada no edital.</p>
+        <ul v-else class="lista">
+          <li v-for="(regra, i) in metadados.regras_de_corte" :key="i">
+            <span>{{ regra.descricao }}</span>
+            <TrechoCitado :item="regra" @ver="ver" />
+          </li>
+        </ul>
+
+        <h3>Prova discursiva</h3>
+        <p v-if="!metadados.discursiva" class="ausente">Não encontrada no edital.</p>
+        <ul v-else class="lista">
+          <li>
+            <span>{{ metadados.discursiva.descricao }}</span>
+            <TrechoCitado :item="metadados.discursiva" @ver="ver" />
+          </li>
+        </ul>
+      </section>
     </div>
 
-    <h3>Regras de corte</h3>
-    <p v-if="metadados.regras_de_corte.length === 0" class="ausente">Nenhuma regra de corte encontrada no edital.</p>
-    <ul class="lista">
-      <li v-for="(regra, i) in metadados.regras_de_corte" :key="i">
-        <span>{{ regra.descricao }}</span>
-        <TrechoCitado :item="regra" @ver="ver" />
-      </li>
-    </ul>
-
-    <h3>Prova discursiva</h3>
-    <p v-if="!metadados.discursiva" class="ausente">Não encontrada no edital.</p>
-    <ul v-else class="lista">
-      <li>
-        <span>{{ metadados.discursiva.descricao }}</span>
-        <TrechoCitado :item="metadados.discursiva" @ver="ver" />
-      </li>
-    </ul>
-
-    <p v-if="metadados.extracao" class="rodape mono">
-      Extraído em {{ formatarDataHora(metadados.extracao.concluida_em) }}
-      <template v-for="chamada in metadados.extracao.chamadas || []" :key="chamada.prompt">
-        <br />{{ chamada.prompt }} · {{ chamada.modelo }} · chave {{ chamada.chave }} · {{ chamada.tokens ?? '?' }} tokens
-      </template>
+    <p class="rodape">
+      <span :title="detalheDaExtracao || undefined">
+        Extraídos pela IA<template v-if="metadados.extracao"> em {{ formatarDataHora(metadados.extracao.concluida_em) }}</template></span
+      >
+      · <b>{{ verificados }} de {{ itens.length }}</b> trechos conferidos na página citada. Correções feitas na Revisão
+      aparecem aqui.
     </p>
   </div>
 </template>
 
 <style scoped>
-.metadados {
+.ficha {
   display: grid;
-  gap: 0.75rem;
+  gap: 1.25rem;
   padding: 1rem;
 }
-.resumo,
 .ausente {
   margin: 0;
   color: var(--muted-foreground);
 }
+
+/* Banca, órgão, cargo e data numa linha (quebram em mais linhas quando falta largura). */
 .campos {
   margin: 0;
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem 1.5rem;
 }
-.linha {
+.campo {
   display: grid;
-  grid-template-columns: 9rem minmax(0, 1fr);
-  gap: 0.5rem;
-  align-items: baseline;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--border);
+  gap: 0.15rem;
+  min-width: 0;
 }
-.linha dd {
+.campo dd {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.linha dd.ausente {
+.campo dd.ausente {
   font-weight: 400;
 }
-h3 {
-  margin: 0.5rem 0 0;
-  font-size: 0.95rem;
-}
-.bloco {
+
+/* Tabela da prova objetiva e, ao lado, regras e discursiva. */
+.corpo {
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 1.25rem 2rem;
+  align-items: start;
 }
-.bloco__titulo,
-.lista li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
+h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
 }
-.disciplinas {
-  margin: 0;
-  padding: 0;
+.total {
+  font-weight: 500;
+  color: var(--muted-foreground);
 }
-.disciplinas li {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.6rem;
-  padding: 0.3rem 0.25rem;
+.objetiva {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.objetiva th {
+  text-align: left;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.questoes {
+.objetiva td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: baseline;
+}
+.bloco {
   font-weight: 600;
+}
+.bloco span {
+  margin-right: 0.4rem;
+}
+.numero {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.selo {
   white-space: nowrap;
+  width: 1%;
+}
+.regras h3 + .lista,
+.regras h3 + .ausente {
+  margin-bottom: 1rem;
 }
 .lista {
   margin: 0;
   padding-left: 1.1rem;
   display: grid;
   gap: 0.4rem;
+  font-size: 0.85rem;
+}
+.lista li > span {
+  margin-right: 0.4rem;
 }
 .rodape {
-  margin: 0.5rem 0 0;
+  margin: 0;
+  font-size: 0.8rem;
   color: var(--muted-foreground);
+}
+.rodape [title] {
+  cursor: help;
+  text-decoration: underline dotted;
 }
 </style>
