@@ -29,3 +29,14 @@ export function situacaoDoEdital(edital) {
   }
   return { rotulo: 'cobertura pronta', severidade: 'success' }
 }
+
+// Texto de questão lido do PDF, para ler corrido: junta a palavra partida no fim da linha ("in-\nfração") e as quebras
+// de linha simples; linha em branco continua separando parágrafos.
+export function textoCorrido(texto) {
+  return String(texto ?? '')
+    .replace(/(\p{L})-\n(\p{Ll})/gu, '$1$2')
+    .split(/\n\s*\n/)
+    .map((paragrafo) => paragrafo.replace(/\s*\n\s*/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n\n')
+}

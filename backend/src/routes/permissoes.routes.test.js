@@ -63,6 +63,10 @@ test("aluno: lê só os editais atribuídos e a biblioteca; o resto é 403", asy
   for (const url of [`/editais/${atribuido}`, `/editais/${atribuido}/conteudo`, `/editais/${atribuido}/cobertura`, `/editais/${atribuido}/paginas/1`]) {
     assert.equal((await chamar(aluno, "GET", url)).status, 200, url);
   }
+  // O simulador do edital atribuído (etapa 5a): o treino sem disciplina é 400, não 403.
+  assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}/simulador`)).status, 200);
+  assert.equal((await chamar(aluno, "POST", `/editais/${atribuido}/simulador/treino`, {})).status, 400);
+  assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}/simulador`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}/conteudo`)).status, 404);
 

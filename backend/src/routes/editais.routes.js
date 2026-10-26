@@ -7,15 +7,17 @@ const { exigirOrientador } = require("../shared/acesso");
 
 const TAMANHO_MAXIMO_PDF = 50 * 1024 * 1024;
 
-// O que o aluno pode nos editais (etapa 4c): só ler a lista, o edital, o conteúdo programático, as páginas, o PDF e a
-// cobertura, e só dos editais atribuídos a ele. O resto (revisão, fontes, provas e qualquer alteração) é do orientador
-// e do professor.
-// "/" (a lista), "/:id", "/:id/conteudo", "/:id/cobertura", "/:id/arquivo" e "/:id/paginas/:numero".
+// O que o aluno pode nos editais (etapa 4c): ler a lista, o edital, o conteúdo programático, as páginas, o PDF e a
+// cobertura, e usar o simulador (etapa 5a), só nos editais atribuídos a ele. O resto (revisão, fontes, provas e
+// qualquer alteração) é do orientador e do professor.
+// GET "/" (a lista), "/:id", "/:id/conteudo", "/:id/cobertura", "/:id/arquivo", "/:id/paginas/:numero" e
+// "/:id/simulador"; POST "/:id/simulador/treino" e "/:id/simulador/respostas".
 function eLeituraDoAluno(req) {
-  if (req.method !== "GET") return false;
   const partes = req.path.split("/").filter(Boolean);
+  if (req.method === "POST") return partes.length === 3 && partes[1] === "simulador" && ["treino", "respostas"].includes(partes[2]);
+  if (req.method !== "GET") return false;
   if (partes.length <= 1) return true;
-  if (partes.length === 2) return ["conteudo", "cobertura", "arquivo"].includes(partes[1]);
+  if (partes.length === 2) return ["conteudo", "cobertura", "arquivo", "simulador"].includes(partes[1]);
   return partes.length === 3 && partes[1] === "paginas";
 }
 function leituraDoAluno(req, res, next) {
@@ -26,7 +28,7 @@ function leituraDoAluno(req, res, next) {
 }
 const alunoDa = (req) => (req.equipe.papel === "aluno" ? req.usuario.id : undefined);
 
-function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService, provasService) {
+function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService, provasService, simuladorService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -113,6 +115,20 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
 
   router.delete("/:id/provas/:provaId", async (req, res) => {
     res.json({ data: await provasService.desfazerEscolha(req.params.id, req.params.provaId) });
+  });
+
+  // Simulador, treino por disciplina (etapa 5a): o resumo para a tela de início, as questões de um treino (sem o
+  // gabarito) e a correção de uma resposta.
+  router.get("/:id/simulador", async (req, res) => {
+    res.json({ data: await simuladorService.resumo(req.params.id) });
+  });
+
+  router.post("/:id/simulador/treino", async (req, res) => {
+    res.json({ data: await simuladorService.treino(req.params.id, req.body || {}) });
+  });
+
+  router.post("/:id/simulador/respostas", async (req, res) => {
+    res.status(201).json({ data: await simuladorService.responder(req.params.id, req.usuario.id, req.body || {}) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {
