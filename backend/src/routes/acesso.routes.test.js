@@ -166,3 +166,24 @@ test("isolamento: o edital e a prova de uma equipe não aparecem nem se alteram 
   assert.deepEqual((await (await apiA(`${base}/api/v1/provas`)).json()).data.map((p) => p.id), [prova.id]);
   assert.equal((await apiA(`${base}/api/v1/editais/${edital.id}/provas/${prova.id}`, { method: "PUT" })).status, 200);
 });
+
+test("incluir norma na biblioteca: orientador e professor podem, aluno não", async (t) => {
+  const { sequelize, base } = await subir(t);
+  const equipe = await criarEquipe(sequelize);
+  await criarUsuario(sequelize, { email: "prof@teste.br", equipes: [{ id: equipe, papel: "professor" }] });
+  await criarUsuario(sequelize, { email: "aluno@teste.br", equipes: [{ id: equipe, papel: "aluno" }] });
+  const corpo = JSON.stringify({ jurisdicao: "BR", tipo: "Lei", numero: "9.099", ano: "1995", nome: "Juizados Especiais" });
+  const incluir = (fetchComSessao) =>
+    fetchComSessao(`${base}/api/v1/normas`, { method: "POST", headers: { "content-type": "application/json" }, body: corpo });
+
+  const doAluno = await incluir(await entrar(base, "aluno@teste.br", { equipeId: equipe }));
+  assert.equal(doAluno.status, 403);
+  assert.equal(await sequelize.models.Norma.count(), 0);
+
+  const professor = await entrar(base, "prof@teste.br", { equipeId: equipe });
+  const criada = await incluir(professor);
+  assert.equal(criada.status, 201);
+  const deNovo = await incluir(professor);
+  assert.equal(deNovo.status, 200);
+  assert.equal((await deNovo.json()).jaExistia, true);
+});

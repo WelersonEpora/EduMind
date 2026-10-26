@@ -314,3 +314,31 @@ test("biblioteca: a norma com os editais que a citam e os artigos de cada versã
   await assert.rejects(service.artigosDaVersao(norma.id, crypto.randomUUID()), { status: 404 });
   await assert.rejects(service.detalharNorma(crypto.randomUUID(), equipeId), { status: 404 });
 });
+
+test("incluir na biblioteca sem edital: cria uma vez, devolve a existente depois e é reaproveitada ao confirmar", async (t) => {
+  const { sequelize, service } = await montar(t);
+  const campos = { jurisdicao: "br", tipo: "Decreto-Lei", numero: "2.848", ano: "1940", nome: "Código Penal" };
+
+  const primeira = await service.incluir(campos);
+  assert.deepEqual([primeira.jaExistia, primeira.norma.chave, primeira.norma.versoes], [false, "br:decreto-lei:2848:1940", []]);
+  const segunda = await service.incluir({ ...campos, nome: "Outro nome" });
+  assert.deepEqual([segunda.jaExistia, segunda.norma.id, segunda.norma.nome], [true, primeira.norma.id, "Código Penal"]);
+
+  // O edital que chega depois acha a norma pela chave e a confirmação só liga as citações.
+  const { edital } = await criarEdital(sequelize, "depois.pdf");
+  const [cp] = await service.listar(edital.id);
+  assert.equal(cp.norma?.id, primeira.norma.id);
+  const ligada = await service.confirmar(edital.id, { citacoes: cp.citacoes.map((c) => c.id), ...campos });
+  assert.equal(ligada.id, primeira.norma.id);
+  assert.equal(await sequelize.models.Norma.count(), 1);
+});
+
+test("incluir valida a identidade como a confirmação", async (t) => {
+  const { service } = await montar(t);
+  const base = { jurisdicao: "BR", tipo: "Lei", numero: "9.099", ano: "1995", nome: "Juizados Especiais" };
+  await assert.rejects(service.incluir({ ...base, ano: "95" }), { status: 400, message: /4 dígitos/ });
+  await assert.rejects(service.incluir({ ...base, jurisdicao: "Brasil federal" }), { status: 400 });
+  await assert.rejects(service.incluir({ ...base, tipo: " " }), { status: 400 });
+  await assert.rejects(service.incluir({ ...base, nome: "" }), { status: 400 });
+  await assert.rejects(service.incluir(undefined), { status: 400 });
+});

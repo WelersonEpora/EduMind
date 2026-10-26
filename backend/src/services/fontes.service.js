@@ -167,19 +167,12 @@ function criarFontesService({
   }
 
   // Confirma a identidade de um grupo de citações: acha a norma na biblioteca pela chave, ou cria, e liga as citações.
-  async function confirmar(editalId, { citacoes, jurisdicao, tipo, numero, ano, nome }) {
+  async function confirmar(editalId, { citacoes, ...campos }) {
     await editalExistente(editalId);
     if (!Array.isArray(citacoes) || citacoes.length === 0 || !citacoes.every(eUuid)) {
       throw new AppError(400, "Indique as citações a confirmar.");
     }
-    const texto = (valor) => (typeof valor === "string" && valor.trim() !== "" ? valor.trim() : null);
-    const identidade = { jurisdicao: texto(jurisdicao)?.toUpperCase(), tipo: texto(tipo), numero: texto(numero), ano: texto(ano) };
-    if (!identidade.jurisdicao || !/^[A-Z]{2,10}$/.test(identidade.jurisdicao)) {
-      throw new AppError(400, 'A jurisdição precisa ser "BR", a sigla do estado ("SP") ou a do tribunal ("TJSP").');
-    }
-    if (!identidade.tipo) throw new AppError(400, "O tipo da norma não pode ficar vazio.");
-    if (identidade.ano && !/^\d{4}$/.test(identidade.ano)) throw new AppError(400, "O ano precisa ter 4 dígitos.");
-    if (!texto(nome)) throw new AppError(400, "O nome da norma não pode ficar vazio.");
+    const identidade = identidadeValida(campos);
 
     return sequelize.transaction(async (transaction) => {
       const doEdital = await ItemNorma.findAll({
@@ -189,26 +182,52 @@ function criarFontesService({
       });
       if (doEdital.length !== citacoes.length) throw new AppError(404, "Citação não encontrada entre os itens aprovados deste edital.");
 
-      const chave = chaveDe(identidade);
-      let norma = await Norma.findOne({ where: { chave }, transaction });
-      if (!norma) {
-        norma = await Norma.create(
-          {
-            id: crypto.randomUUID(),
-            chave,
-            tipo: identidade.tipo,
-            numero: identidade.numero,
-            ano: identidade.ano,
-            nome: texto(nome),
-            jurisdicao: identidade.jurisdicao,
-            esfera: esferaDe(identidade.jurisdicao)
-          },
-          { transaction }
-        );
-      }
+      const { norma } = await acharOuCriar(identidade, transaction);
       await ItemNorma.update({ norma_id: norma.id }, { where: { id: citacoes }, transaction });
       return resumoDaNorma(norma);
     });
+  }
+
+  // A identidade digitada pelo orientador (na confirmação das Fontes ou na inclusão direta na biblioteca), validada.
+  function identidadeValida({ jurisdicao, tipo, numero, ano, nome }) {
+    const texto = (valor) => (typeof valor === "string" && valor.trim() !== "" ? valor.trim() : null);
+    const identidade = { jurisdicao: texto(jurisdicao)?.toUpperCase(), tipo: texto(tipo), numero: texto(numero), ano: texto(ano) };
+    if (!identidade.jurisdicao || !/^[A-Z]{2,10}$/.test(identidade.jurisdicao)) {
+      throw new AppError(400, 'A jurisdição precisa ser "BR", a sigla do estado ("SP") ou a do tribunal ("TJSP").');
+    }
+    if (!identidade.tipo) throw new AppError(400, "O tipo da norma não pode ficar vazio.");
+    if (identidade.ano && !/^\d{4}$/.test(identidade.ano)) throw new AppError(400, "O ano precisa ter 4 dígitos.");
+    if (!texto(nome)) throw new AppError(400, "O nome da norma não pode ficar vazio.");
+    return { ...identidade, nome: texto(nome) };
+  }
+
+  // A norma da biblioteca com a chave da identidade; se não existe, cria. Uma norma por chave.
+  async function acharOuCriar(identidade, transaction) {
+    const chave = chaveDe(identidade);
+    const existente = await Norma.findOne({ where: { chave }, transaction });
+    if (existente) return { norma: existente, jaExistia: true };
+    const norma = await Norma.create(
+      {
+        id: crypto.randomUUID(),
+        chave,
+        tipo: identidade.tipo,
+        numero: identidade.numero,
+        ano: identidade.ano,
+        nome: identidade.nome,
+        jurisdicao: identidade.jurisdicao,
+        esfera: esferaDe(identidade.jurisdicao)
+      },
+      { transaction }
+    );
+    return { norma, jaExistia: false };
+  }
+
+  // Inclusão direta na biblioteca, sem edital (para preparar a biblioteca antes do edital chegar). Com a chave já na
+  // biblioteca, não cria outra: devolve a existente (jaExistia).
+  async function incluir(campos) {
+    const identidade = identidadeValida(campos || {});
+    const { norma, jaExistia } = await sequelize.transaction((transaction) => acharOuCriar(identidade, transaction));
+    return { norma: await resumoDaNorma(norma), jaExistia };
   }
 
   // Desfaz a ligação (identidade confirmada errada). A norma continua na biblioteca.
@@ -366,6 +385,7 @@ function criarFontesService({
   return {
     listar,
     confirmar,
+    incluir,
     desligar,
     buscarUrl,
     definirUrl,

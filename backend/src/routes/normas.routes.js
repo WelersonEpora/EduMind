@@ -3,6 +3,7 @@
 const express = require("express");
 const multer = require("multer");
 const { AppError } = require("../shared/errors");
+const { exigirOrientadorOuProfessor } = require("../shared/acesso");
 
 const TAMANHO_MAXIMO_ARQUIVO = 30 * 1024 * 1024;
 
@@ -14,6 +15,13 @@ function criarRotasDeNormas(fontesService) {
 
   router.get("/", async (req, res) => {
     res.json({ data: await fontesService.biblioteca(req.equipe.id) });
+  });
+
+  // Inclusão direta na biblioteca (sem edital), por orientador ou professor. Com a chave já na biblioteca, devolve a
+  // existente (200 e jaExistia).
+  router.post("/", exigirOrientadorOuProfessor, async (req, res) => {
+    const { norma, jaExistia } = await fontesService.incluir(req.body);
+    res.status(jaExistia ? 200 : 201).json({ data: norma, jaExistia });
   });
 
   router.get("/:id", async (req, res) => {

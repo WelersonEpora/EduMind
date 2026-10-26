@@ -41,10 +41,18 @@ function exigirOrientador(req, res, next) {
   next();
 }
 
+// Orientador ou professor da equipe da requisição (depois de exigirEquipe): o aluno não mexe na biblioteca de normas.
+function exigirOrientadorOuProfessor(req, res, next) {
+  if (!["orientador", "professor"].includes(req.equipe?.papel)) {
+    throw new AppError(403, "Só o orientador ou o professor da equipe pode fazer isso.");
+  }
+  next();
+}
+
 // Só o administrador da plataforma (depois de exigirLogin). Não depende de equipe.
 function exigirAdmin(req, res, next) {
   if (!req.usuario?.admin) throw new AppError(403, "Só o administrador da plataforma pode fazer isso.");
   next();
 }
 
-module.exports = { exigirLogin, exigirEquipe, exigirOrientador, exigirAdmin };
+module.exports = { exigirLogin, exigirEquipe, exigirOrientador, exigirOrientadorOuProfessor, exigirAdmin };
