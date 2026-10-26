@@ -15,11 +15,12 @@ function exigirLogin({ sessao, authService }) {
   };
 }
 
-// Em que equipe ele está trabalhando: o cabeçalho X-Equipe-Id, que a tela manda em toda chamada. Sem o cabeçalho,
-// vale a única equipe do usuário; com mais de uma, a tela precisa escolher.
+// Em que equipe ele está trabalhando: o cabeçalho X-Equipe-Id, que a tela manda em toda chamada, ou ?equipe= na URL,
+// para os links que o navegador abre sozinho (o PDF do edital, da prova, da norma), que não levam cabeçalho. Sem
+// nenhum dos dois, vale a única equipe do usuário; com mais de uma, a tela precisa escolher.
 function exigirEquipe({ authService }) {
   return async function (req, res, next) {
-    const equipeId = req.get("x-equipe-id");
+    const equipeId = req.get("x-equipe-id") || (typeof req.query.equipe === "string" ? req.query.equipe : null);
     if (equipeId) {
       const papel = await authService.papelNaEquipe(req.usuario.id, equipeId);
       if (!papel) throw new AppError(403, "Você não faz parte desta equipe.");

@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Select from 'primevue/select'
 import { useEditais, nomeDoEdital } from '../../composables/useEditais'
+import { useSessao, NOMES_DOS_PAPEIS } from '../../composables/useSessao'
 import { version } from '../../../package.json'
 
 // Topbar + menu lateral, no padrão do AgroMind (DashboardShell.vue): menu claro, item ativo em
@@ -15,6 +16,7 @@ const CHAVE_EDITAL_ATIVO = 'edumind-edital-ativo'
 const route = useRoute()
 const router = useRouter()
 const { editais, recarregar } = useEditais()
+const { usuario, equipes, equipeAtual, trocarEquipe, sair } = useSessao()
 
 const recolhido = ref(lerPreferencia(CHAVE_RECOLHIDO) === '1')
 const gavetaAberta = ref(false)
@@ -81,7 +83,28 @@ const itensDoEdital = computed(() => [
   { rotulo: 'Provas anteriores', icone: 'pi-file-edit', rota: 'provas', para: editalAtivo.value && { name: 'provas', params: { id: editalAtivo.value.id } } }
 ])
 
-onMounted(recarregar)
+// A lista de editais é da equipe (etapa 4a): carrega ao entrar e de novo a cada troca de equipe.
+watch(
+  () => equipeAtual.value?.id,
+  (id) => {
+    if (id) recarregar()
+    else editais.value = []
+  },
+  { immediate: true }
+)
+
+const opcoesDeEquipe = computed(() => equipes.value.map((e) => ({ id: e.id, nome: `${e.nome} · ${NOMES_DOS_PAPEIS[e.papel]}` })))
+
+// O edital aberto é da equipe anterior: a troca leva para a lista de editais da nova.
+function escolherEquipe(id) {
+  trocarEquipe(id)
+  router.push({ name: 'editais' })
+}
+
+async function sairDoSistema() {
+  await sair()
+  router.push({ name: 'entrar' })
+}
 </script>
 
 <template>
@@ -94,6 +117,25 @@ onMounted(recarregar)
       <span v-if="ROTAS_DO_EDITAL.includes(route.name) && editalAtivo" class="shell__contexto">
         Edital ativo: <strong>{{ nomeDoEdital(editalAtivo) }}</strong>
       </span>
+      <div class="shell__usuario">
+        <Select
+          v-if="equipes.length > 1"
+          :model-value="equipeAtual?.id"
+          :options="opcoesDeEquipe"
+          option-label="nome"
+          option-value="id"
+          aria-label="Equipe"
+          class="shell__equipe"
+          @update:model-value="escolherEquipe"
+        />
+        <span v-else-if="equipeAtual" class="shell__equipe-nome" :title="NOMES_DOS_PAPEIS[equipeAtual.papel]">
+          <i class="pi pi-users"></i>{{ equipeAtual.nome }}
+        </span>
+        <span class="shell__nome" :title="usuario?.email">{{ usuario?.nome }}</span>
+        <button type="button" class="shell__sair" title="Sair" aria-label="Sair" @click="sairDoSistema">
+          <i class="pi pi-sign-out"></i>
+        </button>
+      </div>
     </header>
 
     <div class="shell__fundo-gaveta" :class="{ 'shell__fundo-gaveta--visivel': gavetaAberta }" @click="fecharGaveta"></div>
@@ -219,6 +261,7 @@ onMounted(recarregar)
 }
 .shell__contexto {
   margin-left: auto;
+  flex: 0 1 auto;
   font-size: 0.82rem;
   color: var(--muted-foreground);
   min-width: 0;
@@ -227,6 +270,47 @@ onMounted(recarregar)
   white-space: nowrap;
 }
 .shell__contexto strong {
+  color: var(--foreground);
+}
+.shell__usuario {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+  font-size: 0.82rem;
+}
+.shell__contexto + .shell__usuario {
+  margin-left: 1rem;
+}
+.shell__equipe {
+  font-size: 0.82rem;
+  max-width: 260px;
+}
+.shell__equipe-nome {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted-foreground);
+}
+.shell__nome {
+  font-weight: 600;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell__sair {
+  border: 0;
+  background: none;
+  padding: 0.4rem;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  display: grid;
+}
+.shell__sair:hover {
+  background: var(--secondary);
   color: var(--foreground);
 }
 
@@ -399,8 +483,14 @@ onMounted(recarregar)
   .shell__conteudo {
     padding: 1rem;
   }
-  .shell__marca small {
+  .shell__marca small,
+  .shell__contexto,
+  .shell__nome,
+  .shell__equipe-nome {
     display: none;
+  }
+  .shell__equipe {
+    max-width: 150px;
   }
 }
 </style>

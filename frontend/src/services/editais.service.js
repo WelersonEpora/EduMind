@@ -1,4 +1,4 @@
-import http from './http'
+import http, { comEquipe } from './http'
 
 // Ler um edital grande (dezenas de páginas) leva alguns segundos: timeout maior que o padrão.
 const TIMEOUT_UPLOAD_MS = 120000
@@ -118,11 +118,11 @@ export async function buscarArtigosDaVersao(normaId, versaoId) {
 }
 
 export function urlDoArquivoDaVersao(normaId, versaoId) {
-  return `/api/v1/normas/${normaId}/versoes/${versaoId}/arquivo`
+  return comEquipe(`/api/v1/normas/${normaId}/versoes/${versaoId}/arquivo`)
 }
 
 export function urlDoArquivo(id) {
-  return `/api/v1/editais/${id}/arquivo`
+  return comEquipe(`/api/v1/editais/${id}/arquivo`)
 }
 
 // Cobertura (etapa 2c): cada artigo pedido no edital cruzado com o texto da norma.

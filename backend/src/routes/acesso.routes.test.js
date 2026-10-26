@@ -105,6 +105,9 @@ test("equipe: sem equipe 403; com duas, precisa escolher; equipe alheia ou vínc
   assert.equal((await semEscolher.json()).error.codigo, "equipe_nao_escolhida");
 
   assert.equal((await (await entrar(base, "prof@teste.br", { equipeId: b }))(`${base}/api/v1/editais`)).status, 200);
+  // Os links de PDF levam a equipe na URL, porque o navegador não manda o cabeçalho.
+  assert.equal((await (await entrar(base, "prof@teste.br"))(`${base}/api/v1/editais?equipe=${a}`)).status, 200);
+  assert.equal((await (await entrar(base, "prof@teste.br"))(`${base}/api/v1/editais?equipe=${c}`)).status, 403);
   assert.equal((await (await entrar(base, "prof@teste.br", { equipeId: c }))(`${base}/api/v1/editais`)).status, 403);
   assert.equal((await (await entrar(base, "prof@teste.br", { equipeId: "nao-e-uuid" }))(`${base}/api/v1/editais`)).status, 403);
 

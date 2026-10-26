@@ -1,4 +1,4 @@
-import http from './http'
+import http, { comEquipe } from './http'
 
 // Provas anteriores (etapa 3a): a biblioteca compartilhada e a área de provas de cada edital.
 // Ler um PDF de prova (dezenas de páginas) leva alguns segundos: timeout maior que o padrão.
@@ -52,7 +52,7 @@ export async function excluirProva(provaId) {
 }
 
 export function urlDoArquivoDaProva(provaId, tipo) {
-  return `/api/v1/provas/${provaId}/arquivos/${tipo}`
+  return comEquipe(`/api/v1/provas/${provaId}/arquivos/${tipo}`)
 }
 
 // Leitura das questões (etapa 3b): em segundo plano; a tela acompanha pelo leitura_status da prova.
