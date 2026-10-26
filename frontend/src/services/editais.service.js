@@ -136,3 +136,9 @@ export async function conferirEstrutura(id, citacaoId, conferida) {
   const resposta = await http.put(`/api/v1/editais/${id}/cobertura/citacoes/${citacaoId}/estrutura`, { conferida })
   return resposta.data.data
 }
+
+// Inclusão direta na biblioteca (orientador ou professor). Com a chave já na biblioteca, devolve a existente.
+export async function incluirNorma(campos) {
+  const resposta = await http.post('/api/v1/normas', campos)
+  return { norma: resposta.data.data, jaExistia: resposta.data.jaExistia }
+}

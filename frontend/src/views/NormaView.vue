@@ -1,19 +1,32 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
-import { buscarArtigosDaVersao, buscarNorma, urlDoArquivoDaVersao } from '../services/editais.service'
+import {
+  buscarArtigosDaVersao,
+  buscarNorma,
+  buscarUrlDaNorma,
+  definirUrlDaNorma,
+  enviarVersaoDaNorma,
+  processarVersaoDaNorma,
+  urlDoArquivoDaVersao
+} from '../services/editais.service'
+import FonteDaNorma from '../components/fontes/FonteDaNorma.vue'
 import { nomeDoEdital } from '../composables/useEditais'
 import { formatarDataHora } from '../utils/formatar'
 import { partesDoArtigo } from '../utils/normas'
 
 // Uma norma da biblioteca e o texto de uma versão dividido em artigos, como documento: os cabeçalhos da estrutura
 // (título, capítulo, seção), o texto vigente, as notas de redação, a marca de revogado e a redação anterior tachada.
+// A URL oficial e as versões do texto são da norma: dá para buscar a URL e enviar uma versão nova aqui mesmo, sem
+// passar pelas Fontes de um edital (FonteDaNorma, o mesmo das Fontes).
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const norma = ref(null)
 const artigos = ref([])
@@ -61,6 +74,38 @@ async function carregarArtigos() {
 
 watch(() => route.params.id, carregarNorma, { immediate: true })
 watch(() => [norma.value?.id, versaoId.value], carregarArtigos)
+
+// Ações da fonte: depois de cada uma, a norma é recarregada. Uma versão nova passa a ser a mostrada.
+const ocupado = ref(false)
+async function executar(acao, falha, sucesso) {
+  ocupado.value = true
+  try {
+    const versaoNova = await acao()
+    norma.value = await buscarNorma(norma.value.id)
+    if (versaoNova) await router.replace({ query: { ...route.query, versao: undefined } })
+    // "Processar de novo" mantém a versão: o texto em artigos precisa ser lido de novo.
+    else await carregarArtigos()
+    if (sucesso) toast.add({ severity: 'success', summary: sucesso, life: 4000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: falha, detail: e.message, life: 8000 })
+  } finally {
+    ocupado.value = false
+  }
+}
+const aoBuscarUrl = (n) => executar(() => buscarUrlDaNorma(n.id), 'A busca não achou a URL oficial', 'URL oficial encontrada')
+const aoDefinirUrl = (n, url) => executar(() => definirUrlDaNorma(n.id, url), 'Não foi possível salvar a URL')
+const aoProcessarVersao = (n, v) =>
+  executar(() => processarVersaoDaNorma(n.id, v.id), 'Não foi possível dividir o texto', 'Texto dividido em artigos')
+const aoEnviarVersao = (n, arquivo) =>
+  executar(
+    async () => {
+      const { jaExistia } = await enviarVersaoDaNorma(n.id, arquivo)
+      if (jaExistia) toast.add({ severity: 'info', summary: 'Este arquivo já foi enviado', detail: 'Nenhuma versão nova.', life: 5000 })
+      return !jaExistia
+    },
+    'Não foi possível enviar o texto',
+    'Texto recebido'
+  )
 
 function escolherVersao(id) {
   router.replace({ query: { ...route.query, versao: id } })
@@ -141,13 +186,11 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
   <Message v-if="erro" severity="error" :closable="false">{{ erro }}</Message>
 
   <template v-if="norma">
+    <router-link :to="{ name: 'normas' }" class="voltar-topo"><i class="pi pi-arrow-left"></i>Biblioteca de normas</router-link>
     <div class="pagina-cabecalho">
       <div>
         <h1>{{ norma.nome }}</h1>
         <p class="mono">{{ norma.chave }}</p>
-        <p v-if="norma.url_oficial">
-          Fonte oficial: <a :href="norma.url_oficial" target="_blank" rel="noopener">{{ norma.url_oficial }}</a>
-        </p>
         <p v-if="norma.editais.length">
           Citada em:
           <router-link v-for="(edital, i) in norma.editais" :key="edital.id" :to="{ name: 'fontes', params: { id: edital.id } }">
@@ -155,11 +198,23 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
           </router-link>
         </p>
       </div>
-      <router-link to="/normas" class="voltar">← Biblioteca</router-link>
     </div>
 
+    <section class="painel fonte">
+      <div class="painel__cabecalho"><h2>Fonte oficial e texto</h2></div>
+      <FonteDaNorma
+        :norma="norma"
+        :ocupado="ocupado"
+        class="painel__corpo"
+        @buscar-url="aoBuscarUrl"
+        @definir-url="aoDefinirUrl"
+        @enviar-versao="aoEnviarVersao"
+        @processar-versao="aoProcessarVersao"
+      />
+    </section>
+
     <Message v-if="norma.versoes.length === 0" severity="warn" :closable="false">
-      Esta norma ainda não tem texto. Envie o arquivo nas Fontes de um edital que a cite.
+      Esta norma ainda não tem texto. Envie o arquivo em "Fonte oficial e texto", acima.
     </Message>
 
     <template v-else>
@@ -182,10 +237,11 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
       </div>
       <Message v-for="aviso in versao?.avisos || []" :key="aviso" severity="warn" :closable="false">{{ aviso }}</Message>
       <Message v-if="versao && !versao.processada_em" severity="warn" :closable="false">
-        Esta versão ainda não foi dividida em artigos. Use "processar de novo" nas Fontes.
+        Esta versão ainda não foi dividida em artigos. Use "processar de novo" em "Fonte oficial e texto", acima.
       </Message>
 
-      <div class="grade">
+      <!-- Sem títulos nem capítulos (lei curta), não há índice: o texto ocupa a largura toda. -->
+      <div class="grade" :class="{ 'grade--sem-indice': !indice.length }">
         <nav v-if="indice.length" class="painel indice" aria-label="Estrutura da norma">
           <div class="painel__cabecalho"><h2>Estrutura</h2></div>
           <ul>
@@ -230,8 +286,8 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
   margin: 0.2rem 0 0;
   overflow-wrap: anywhere;
 }
-.voltar {
-  white-space: nowrap;
+.fonte {
+  margin-bottom: 1.25rem;
 }
 .barra {
   display: flex;
@@ -252,6 +308,9 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
   grid-template-columns: 17rem minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
+}
+.grade--sem-indice {
+  grid-template-columns: minmax(0, 1fr);
 }
 .indice {
   position: sticky;
