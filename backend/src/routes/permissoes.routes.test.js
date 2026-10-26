@@ -70,12 +70,16 @@ test("aluno: lê só os editais atribuídos e a biblioteca; o resto é 403", asy
   assert.equal((await chamar(aluno, "POST", `/editais/${atribuido}/simulador/provas`, {})).status, 400);
   assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}/simulador/provas/${atribuido}`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}/simulador`)).status, 404);
+  // O próprio desempenho e o caderno de erros (etapa 5c).
+  assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}/simulador/desempenho`)).status, 200);
+  assert.equal((await chamar(aluno, "POST", `/editais/${atribuido}/simulador/caderno`)).status, 200);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}`)).status, 404);
   assert.equal((await chamar(aluno, "GET", `/editais/${naoAtribuido}/conteudo`)).status, 404);
 
   for (const [metodo, url, corpo] of [
     ["GET", `/editais/${atribuido}/fontes`],
     ["GET", `/editais/${atribuido}/provas`],
+    ["GET", `/editais/${atribuido}/alunos`],
     ["PATCH", `/editais/${atribuido}/metadados`, { caminho: "campos.banca", status: "aprovado" }],
     ["POST", `/editais/${atribuido}/extracao`, {}],
     ["PUT", `/editais/${atribuido}/cobertura/citacoes/${randomUUID()}/estrutura`, { conferida: true }],
@@ -94,8 +98,14 @@ test("aluno: lê só os editais atribuídos e a biblioteca; o resto é 403", asy
 });
 
 test("professor: trabalha no conteúdo, mas não exclui prova nem extrai de novo por cima da revisão", async (t) => {
-  const { sessao, chamar, atribuido, naoAtribuido, prova, norma } = await subir(t);
+  const { sessao, chamar, atribuido, naoAtribuido, prova, norma, alunoId } = await subir(t);
   const professor = await sessao("prof@teste.br");
+
+  // Vê os alunos do edital e o desempenho de cada um (etapa 5c).
+  const alunos = (await (await chamar(professor, "GET", `/editais/${atribuido}/alunos`)).json()).data;
+  assert.deepEqual(alunos.map((a) => a.id), [alunoId]);
+  assert.equal((await chamar(professor, "GET", `/editais/${atribuido}/alunos/${alunoId}`)).status, 200);
+  assert.equal((await chamar(professor, "GET", `/editais/${naoAtribuido}/alunos/${alunoId}`)).status, 404);
 
   // Vê todos os editais da equipe, sem atribuição.
   assert.deepEqual((await (await chamar(professor, "GET", "/editais")).json()).data.map((e) => e.id).sort(), [atribuido, naoAtribuido].sort());

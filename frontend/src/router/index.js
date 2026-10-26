@@ -11,6 +11,8 @@ import ProvasView from '../views/ProvasView.vue'
 import QuestoesView from '../views/QuestoesView.vue'
 import SimuladorView from '../views/SimuladorView.vue'
 import SimuladoView from '../views/SimuladoView.vue'
+import AlunosView from '../views/AlunosView.vue'
+import AlunoView from '../views/AlunoView.vue'
 import LoginView from '../views/LoginView.vue'
 import EquipeView from '../views/EquipeView.vue'
 import ContaView from '../views/ContaView.vue'
@@ -40,7 +42,10 @@ const router = createRouter({
         { path: 'provas/:provaId', name: 'questoes', component: QuestoesView, meta: { naoAluno: true } },
         { path: 'simulador', name: 'simulador', component: SimuladorView },
         // Uma prova completa (etapa 5b), em andamento ou entregue.
-        { path: 'simulador/provas/:simuladoId', name: 'simulado', component: SimuladoView }
+        { path: 'simulador/provas/:simuladoId', name: 'simulado', component: SimuladoView },
+        // Os alunos do edital e o desempenho de cada um (etapa 5c): orientador e professor.
+        { path: 'alunos', name: 'alunos', component: AlunosView, meta: { naoAluno: true } },
+        { path: 'alunos/:alunoId', name: 'aluno', component: AlunoView, meta: { naoAluno: true } }
       ]
     },
     { path: '/normas', name: 'normas', component: BibliotecaView },

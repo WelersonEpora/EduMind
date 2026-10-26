@@ -9,6 +9,8 @@ import SelectButton from 'primevue/selectbutton'
 import QuestaoSimulada from '../components/simulador/QuestaoSimulada.vue'
 import ArtigosDaQuestao from '../components/simulador/ArtigosDaQuestao.vue'
 import TabelaDeResultado from '../components/simulador/TabelaDeResultado.vue'
+import DesempenhoDoAluno from '../components/simulador/DesempenhoDoAluno.vue'
+import { buscarMeuDesempenho, treinarCadernoDeErros } from '../services/desempenho.service'
 import {
   buscarResumoDoSimulador,
   iniciarTreino,
@@ -19,7 +21,8 @@ import {
 import { useSessao } from '../composables/useSessao'
 import { duracaoLegivel } from '../utils/formatar'
 
-// Simulador (etapas 5a e 5b). No início, o treino por disciplina e a prova completa. O treino tem três momentos:
+// Simulador (etapas 5a, 5b e 5c). No início, o treino por disciplina, a prova completa e o desempenho do usuário, com o
+// caderno de erros. O treino tem três momentos:
 // escolher as disciplinas e a quantidade, responder uma questão por vez (a correção vem do servidor, com o texto dos
 // artigos que a questão cobra) e ver o resultado, com a opção de refazer as erradas. A prova completa abre na sua
 // própria tela (SimuladoView).
@@ -59,6 +62,27 @@ async function carregar(id) {
   }
 }
 watch(() => route.params.id, carregar, { immediate: true })
+
+// Desempenho e caderno de erros: recarregados a cada volta ao início (depois de um treino).
+const desempenho = ref(null)
+async function carregarDesempenho() {
+  try {
+    desempenho.value = await buscarMeuDesempenho(route.params.id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não foi possível carregar o desempenho', detail: e.message, life: 6000 })
+  }
+}
+watch([() => route.params.id, momento], ([, m]) => m === 'inicio' && carregarDesempenho(), { immediate: true })
+
+async function treinarCaderno() {
+  try {
+    const lista = await treinarCadernoDeErros(route.params.id)
+    if (lista.length === 0) throw new Error('O caderno de erros está vazio.')
+    comecar(lista)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não foi possível começar', detail: e.message, life: 6000 })
+  }
+}
 
 function alternarTodas() {
   escolhidas.value = escolhidas.value.length === resumo.value.disciplinas.length ? [] : resumo.value.disciplinas.map((d) => d.id)
@@ -275,6 +299,23 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
         <template v-for="(prova, i) in resumo.provas" :key="prova.id">{{ nomeDaProva(prova) }}<template v-if="i < resumo.provas.length - 1">, </template></template>.
         <template v-if="provasNaoOficiais">O gabarito de {{ provasNaoOficiais === resumo.provas.length ? 'todas elas' : `${provasNaoOficiais} delas` }} não é o oficial definitivo.</template>
       </p>
+
+      <section v-if="desempenho" class="painel meu-desempenho">
+        <div class="painel__cabecalho">
+          <h2>Meu desempenho</h2>
+          <Button
+            :label="`Treinar o caderno de erros (${desempenho.caderno})`"
+            icon="pi pi-replay"
+            size="small"
+            :disabled="desempenho.caderno === 0"
+            title="As questões cuja resposta mais recente está errada. Acertou, sai do caderno."
+            @click="treinarCaderno"
+          />
+        </div>
+        <div class="painel__corpo">
+          <DesempenhoDoAluno :desempenho="desempenho" :edital-id="route.params.id" proprio />
+        </div>
+      </section>
     </template>
   </template>
 
@@ -345,7 +386,8 @@ const percentual = (a, t) => (t ? Math.round((100 * a) / t) : 0)
   display: inline-flex;
   gap: 0.5rem;
 }
-.provas-completas {
+.provas-completas,
+.meu-desempenho {
   margin-top: 1.25rem;
 }
 .explicacao {

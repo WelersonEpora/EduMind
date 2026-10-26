@@ -39,7 +39,8 @@ const TODAS_AS_ABAS = [
   { rotulo: 'Fontes', icone: 'pi-globe', nome: 'fontes', rotas: ['fontes'] },
   { rotulo: 'Cobertura', icone: 'pi-chart-bar', nome: 'cobertura', rotas: ['cobertura'], doAluno: true },
   { rotulo: 'Provas anteriores', icone: 'pi-file-edit', nome: 'provas', rotas: ['provas', 'questoes'] },
-  { rotulo: 'Simulador', icone: 'pi-play-circle', nome: 'simulador', rotas: ['simulador', 'simulado'], doAluno: true }
+  { rotulo: 'Simulador', icone: 'pi-play-circle', nome: 'simulador', rotas: ['simulador', 'simulado'], doAluno: true },
+  { rotulo: 'Alunos', icone: 'pi-users', nome: 'alunos', rotas: ['alunos', 'aluno'] }
 ]
 const ABAS = computed(() => TODAS_AS_ABAS.filter((aba) => !eAluno.value || aba.doAluno))
 </script>

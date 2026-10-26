@@ -86,7 +86,7 @@ async function montar(t) {
     agora: () => relogio.agora
   });
   const disciplinas = Object.fromEntries((await editais.conteudo(edital.id)).filter((i) => i.nivel === "disciplina").map((i) => [i.texto, i.id]));
-  return { sequelize, service, edital, prova, q, disciplinas, Resposta, relogio };
+  return { sequelize, service, edital, equipeId, prova, q, disciplinas, Resposta, relogio };
 }
 
 test("nome da disciplina: maiúsculas, acentos e espaços não importam; uma pode começar com a outra", () => {
@@ -233,4 +233,48 @@ test("prova completa: quando o tempo acaba, a prova é entregue com o que foi re
   await service.desistir(edital.id, aluno, outra.id);
   await assert.rejects(service.prova(edital.id, aluno, outra.id), { status: 404 });
   await assert.rejects(service.iniciarProva(edital.id, aluno, { prova_id: randomUUID() }), { status: 404 });
+});
+
+test("desempenho: geral, por disciplina, caderno de erros (sai ao acertar), artigos mais errados e provas; alunos do edital", async (t) => {
+  const { sequelize, service, edital, equipeId, prova, q } = await montar(t);
+  const { criarDesempenhoService } = require("./desempenho.service");
+  const desempenho = criarDesempenhoService({ sequelize, simuladorService: service });
+  const aluno = await usuario(sequelize);
+  await sequelize.models.Membro.create({ id: randomUUID(), equipe_id: equipeId, usuario_id: aluno, papel: "aluno" });
+  await sequelize.models.EditalAluno.create({ edital_id: edital.id, usuario_id: aluno });
+
+  // Treino: errou o Penal, acertou o Português, errou e depois acertou o Processo Penal. Prova: errou a "outra".
+  await service.responder(edital.id, aluno, { questao_id: q.penal, resposta: "C" });
+  await service.responder(edital.id, aluno, { questao_id: q.portugues, resposta: "B" });
+  await service.responder(edital.id, aluno, { questao_id: q.processo, resposta: "A" });
+  await service.responder(edital.id, aluno, { questao_id: q.processo, resposta: "B" });
+  const simulado = await service.iniciarProva(edital.id, aluno, { prova_id: prova });
+  await service.marcar(edital.id, aluno, simulado.id, q.outra, { resposta: "A" });
+  await service.entregar(edital.id, aluno, simulado.id);
+
+  const d = await desempenho.desempenho(edital.id, aluno);
+  assert.deepEqual([d.questoes, d.respostas, d.acertos, d.caderno], [4, 5, 2, 2]);
+  assert.deepEqual(
+    d.por_disciplina.map((x) => [x.texto, x.questoes, x.respostas, x.acertos]),
+    [["Língua Portuguesa", 1, 1, 1], ["Direito Penal", 1, 1, 0], ["Direito Processual Penal", 1, 2, 1], ["Outras", 1, 1, 0]]
+  );
+  assert.deepEqual(d.artigos.map((a) => [a.norma.nome, a.numero, a.erros, a.respostas]), [
+    ["Código Penal", "312", 1, 1],
+    ["Código Penal", "313", 1, 1],
+    ["Código Penal", "1", 1, 2]
+  ]);
+  assert.deepEqual(d.provas.map((p) => [p.prova.ano, p.acertos, p.total]), [[2021, 0, 4]]);
+  assert.deepEqual((await service.treinoDoCaderno(edital.id, aluno)).map((x) => x.id).sort(), [q.penal, q.outra].sort());
+
+  // Acertou uma vez, sai do caderno.
+  await service.responder(edital.id, aluno, { questao_id: q.penal, resposta: "B" });
+  assert.equal((await desempenho.desempenho(edital.id, aluno)).caderno, 1);
+
+  const alunos = await desempenho.alunos(edital.id);
+  assert.deepEqual(alunos.map((a) => [a.nome, a.questoes, a.respostas, a.acertos, a.provas]), [["Aluno", 4, 6, 3, 1]]);
+  assert.equal((await desempenho.doAluno(edital.id, aluno)).aluno.id, aluno);
+  await assert.rejects(desempenho.doAluno(edital.id, randomUUID()), { status: 404 });
+  // Sem nada respondido: tudo zerado.
+  const outro = await usuario(sequelize, "outro@teste.br");
+  assert.deepEqual((await desempenho.desempenho(edital.id, outro)).por_disciplina, []);
 });

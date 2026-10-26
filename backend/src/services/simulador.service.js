@@ -21,6 +21,9 @@ const { versaoDoEdital } = require("./cobertura.service");
 //   disponíveis; sem ele, 3 minutos por questão ("estimado"). O aluno não muda o tempo.
 // - A tentativa fica no servidor (simulado), com a hora de término: recarregar a página não reinicia o relógio.
 // - Sem correção durante a prova. Na entrega (ou quando o tempo acaba), as respostas vão para a tabela resposta.
+//
+// Caderno de erros (etapa 5c), decisão de 2026-10-26: as questões cuja resposta mais recente está errada (no treino ou
+// na prova completa). Acertou uma vez, sai do caderno.
 
 const OUTRAS = "outras";
 const MINUTOS_POR_QUESTAO = 3;
@@ -271,6 +274,56 @@ function criarSimuladorService({ sequelize, coberturaService, embaralhar = embar
     return { acertou, gabarito: questao.gabarito, artigos: await artigosDaQuestao(questao, edital.data_publicacao || null) };
   }
 
+  // Caderno de erros (etapa 5c) ----------------------------------------------------------------------------------------
+
+  // A resposta mais recente do usuário a cada questão do edital.
+  async function ultimasRespostas(editalId, usuarioId) {
+    return sequelize.query(
+      `SELECT DISTINCT ON (questao_id) questao_id, acertou FROM resposta
+        WHERE edital_id = :editalId AND usuario_id = :usuarioId
+        ORDER BY questao_id, created_at DESC`,
+      { replacements: { editalId, usuarioId }, type: sequelize.QueryTypes.SELECT }
+    );
+  }
+
+  // As questões do caderno que ainda podem ser treinadas (uma questão que voltou para revisão fica de fora).
+  async function questoesDoCaderno(editalId, usuarioId) {
+    const erradas = new Set((await ultimasRespostas(editalId, usuarioId)).filter((r) => !r.acertou).map((r) => r.questao_id));
+    const { questoes, mapa } = await questoesComDisciplina(editalId);
+    return { questoes: questoes.filter((q) => erradas.has(q.id)), mapa };
+  }
+
+  // Um treino com as questões do caderno, embaralhadas, sem o gabarito (como o treino por disciplina).
+  async function treinoDoCaderno(editalId, usuarioId) {
+    await editalExistente(editalId);
+    const { questoes, mapa } = await questoesDoCaderno(editalId, usuarioId);
+    const nomes = nomesDasDisciplinas(mapa);
+    return embaralhar(questoes).map((q) => ({
+      id: q.id,
+      numero: q.numero,
+      disciplina: { id: q.disciplina_id, texto: nomes.get(q.disciplina_id) },
+      prova: { id: q.prova_id, ano: q.ano, banca: q.banca, gabarito_oficial: q.gabarito_situacao === "oficial_definitivo" },
+      texto_apoio: q.texto_apoio,
+      enunciado: q.enunciado,
+      alternativas: q.alternativas
+    }));
+  }
+
+  // Para o desempenho (etapa 5c): as questões pelos ids, com a disciplina do edital, as referências e se ainda podem
+  // ser treinadas (utilizavel).
+  async function questoesDoEdital(editalId, ids) {
+    if (ids.length === 0) return { questoes: [], disciplinas: [] };
+    const [questoes, mapa, utilizaveis] = await Promise.all([questoesPorIds(ids), mapaDoEdital(editalId), questoesUtilizaveis(editalId)]);
+    const nomes = nomesDasDisciplinas(mapa);
+    const podeTreinar = new Set(utilizaveis.map((q) => q.id));
+    for (const q of questoes) {
+      const id = disciplinaDa(q, mapa);
+      q.disciplina_do_edital = { id, texto: nomes.get(id) };
+      q.utilizavel = podeTreinar.has(q.id);
+    }
+    return { questoes, disciplinas: [...mapa.disciplinas.map(({ id, texto }) => ({ id, texto })), { id: OUTRAS, texto: "Outras" }] };
+  }
+
   // Prova completa (etapa 5b) ---------------------------------------------------------------------------------------
 
   const restante = (simulado) => Math.max(0, Math.ceil((new Date(simulado.termina_em) - agora()) / 1000));
@@ -473,7 +526,7 @@ function criarSimuladorService({ sequelize, coberturaService, embaralhar = embar
     return { desistiu: simulado.id };
   }
 
-  return { resumo, treino, responder, iniciarProva, prova, marcar, entregar, desistir };
+  return { resumo, treino, responder, iniciarProva, prova, marcar, entregar, desistir, treinoDoCaderno, questoesDoCaderno, questoesDoEdital };
 }
 
 module.exports = { criarSimuladorService, chaveDoNome, disciplinaPeloNome, mudouDepoisDaProva, duracaoDoSimulado, OUTRAS };

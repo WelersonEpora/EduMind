@@ -23,6 +23,7 @@ const { criarProvasService } = require("./services/provas.service");
 const { criarLeituraService } = require("./services/leitura.service");
 const { criarClassificacaoService } = require("./services/classificacao.service");
 const { criarSimuladorService } = require("./services/simulador.service");
+const { criarDesempenhoService } = require("./services/desempenho.service");
 const { criarRotasDeNormas } = require("./routes/normas.routes");
 const { criarRotasDeProvas } = require("./routes/provas.routes");
 const { criarRotasDeEditais } = require("./routes/editais.routes");
@@ -60,9 +61,10 @@ function criarApp({
 
   const coberturaService = criarCoberturaService({ sequelize });
   const simuladorService = criarSimuladorService({ sequelize, coberturaService });
+  const desempenhoService = criarDesempenhoService({ sequelize, simuladorService });
   app.use(
     "/api/v1/editais",
-    criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService, coberturaService, provasService, simuladorService)
+    criarRotasDeEditais(editalService, extracaoService, criarRevisaoService({ sequelize }), fontesService, coberturaService, provasService, simuladorService, desempenhoService)
   );
 
   app.use("/api/v1/normas", criarRotasDeNormas(fontesService));

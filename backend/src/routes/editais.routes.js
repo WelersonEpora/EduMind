@@ -28,7 +28,7 @@ function leituraDoAluno(req, res, next) {
 }
 const alunoDa = (req) => (req.equipe.papel === "aluno" ? req.usuario.id : undefined);
 
-function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService, provasService, simuladorService) {
+function criarRotasDeEditais(editalService, extracaoService, revisaoService, fontesService, coberturaService, provasService, simuladorService, desempenhoService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
@@ -151,6 +151,24 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
 
   router.delete("/:id/simulador/provas/:simuladoId", async (req, res) => {
     res.json({ data: await simuladorService.desistir(req.params.id, req.usuario.id, req.params.simuladoId) });
+  });
+
+  // Desempenho (etapa 5c): o do próprio usuário e o treino com o caderno de erros dele.
+  router.get("/:id/simulador/desempenho", async (req, res) => {
+    res.json({ data: await desempenhoService.desempenho(req.params.id, req.usuario.id) });
+  });
+
+  router.post("/:id/simulador/caderno", async (req, res) => {
+    res.json({ data: await simuladorService.treinoDoCaderno(req.params.id, req.usuario.id) });
+  });
+
+  // Os alunos atribuídos ao edital e o desempenho de cada um: orientador e professor (o aluno não chega aqui).
+  router.get("/:id/alunos", async (req, res) => {
+    res.json({ data: await desempenhoService.alunos(req.params.id) });
+  });
+
+  router.get("/:id/alunos/:alunoId", async (req, res) => {
+    res.json({ data: await desempenhoService.doAluno(req.params.id, req.params.alunoId) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {
