@@ -6,6 +6,7 @@ const path = require("node:path");
 const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const pdfTexto = require("./pdf-texto");
+const { calcularAndamento } = require("./andamento");
 
 // Recebe o PDF do edital, guarda o arquivo original e o texto de cada página.
 // A extração de metadados e da árvore com IA (etapa 1b) parte do que é gravado aqui.
@@ -35,8 +36,17 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     if (!edital) throw new AppError(404, "Edital não encontrado.");
   }
 
-  function listar(equipeId) {
-    return Edital.findAll({ where: { equipe_id: equipeId }, attributes: CAMPOS_DA_LISTA, order: [["created_at", "DESC"]], raw: true });
+  // Cada edital vem com o andamento (andamento.js): a tela de editais mostra a situação e a casca do edital, os
+  // pendentes nas abas. Os metadados só entram no cálculo; não vão na resposta.
+  async function listar(equipeId) {
+    const editais = await Edital.findAll({
+      where: { equipe_id: equipeId },
+      attributes: [...CAMPOS_DA_LISTA, "metadados"],
+      order: [["created_at", "DESC"]],
+      raw: true
+    });
+    const andamento = await calcularAndamento(sequelize, editais);
+    return editais.map(({ metadados, ...edital }) => ({ ...edital, andamento: andamento.get(edital.id) }));
   }
 
   async function criarAPartirDoPdf({ buffer, nomeArquivo, equipeId }) {
