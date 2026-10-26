@@ -3,23 +3,27 @@
 const { randomUUID } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 
-// Administrador da plataforma (etapa 4a). Roda a cada deploy (npm run db:seed) e não faz nada de novo se já rodou:
-// - Sem ADMIN_EMAIL e ADMIN_PASSWORD no ambiente, para com erro, em vez de gravar uma senha conhecida.
-// - Se o e-mail já existe, garante que é administrador e está ativo, mas NÃO troca a senha (o administrador pode tê-la
-//   mudado). Para redefinir, apague o hash no banco e rode de novo.
+// Primeiro administrador da plataforma (etapa 4a). Roda a cada deploy (npm run db:seed), mas só age uma vez:
+// - Se já existe algum administrador ativo, não faz nada e não lê as variáveis. ADMIN_NOME, ADMIN_EMAIL e
+//   ADMIN_PASSWORD só são necessárias na primeira vez e podem sair do .env depois (decisão do orientador, 2026-10-26).
+// - Sem administrador e sem ADMIN_EMAIL e ADMIN_PASSWORD, para com erro, em vez de gravar uma senha conhecida.
+// - Se o e-mail já tem conta (de membro comum), ela vira administradora e a senha NÃO muda.
 // - Equipe sem nenhum membro (a "Equipe inicial" da migration, com os editais e provas de antes do login) ganha o
 //   administrador como orientador, para os dados não ficarem sem dono.
 // Seeder é histórico: SQL direto, sem importar código da aplicação.
 
 module.exports = {
   async up(queryInterface) {
+    const { sequelize } = queryInterface;
+    const [jaTem] = await sequelize.query("SELECT 1 FROM usuario WHERE admin AND ativo LIMIT 1", { type: sequelize.QueryTypes.SELECT });
+    if (jaTem) return;
+
     const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
     const senha = process.env.ADMIN_PASSWORD || "";
     const nome = (process.env.ADMIN_NOME || "").trim() || "Administrador";
-    if (!email || !senha) throw new Error("Defina ADMIN_EMAIL e ADMIN_PASSWORD no .env para criar o administrador.");
+    if (!email || !senha) throw new Error("Nenhum administrador ainda: defina ADMIN_EMAIL e ADMIN_PASSWORD no .env para criar o primeiro.");
     if (senha.length < 8) throw new Error("ADMIN_PASSWORD precisa de pelo menos 8 caracteres.");
 
-    const { sequelize } = queryInterface;
     const agora = new Date();
 
     await sequelize.transaction(async (transaction) => {
