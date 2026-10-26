@@ -119,10 +119,29 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
     return prova;
   }
 
-  async function editalExistente(id) {
-    const edital = eUuid(id) ? await Edital.findByPk(id, { attributes: ["id", "banca", "orgao", "cargo"], raw: true }) : null;
+  // Confere que a prova é da equipe; as rotas chamam antes de qualquer operação com o id (router.param).
+  async function daEquipe(id, equipeId) {
+    const prova = eUuid(id) ? await Prova.findOne({ where: { id, equipe_id: equipeId }, attributes: ["id"], raw: true }) : null;
+    if (!prova) throw new AppError(404, "Prova não encontrada na biblioteca.");
+  }
+
+  async function editalExistente(id, equipeId) {
+    const edital = eUuid(id)
+      ? await Edital.findOne({ where: { id, equipe_id: equipeId }, attributes: ["id", "equipe_id", "banca", "orgao", "cargo"], raw: true })
+      : null;
     if (!edital) throw new AppError(404, "Edital não encontrado.");
     return edital;
+  }
+
+  // Um arquivo com este SHA-256 já na biblioteca da equipe (a mesma prova pode estar em duas equipes, etapa 4a).
+  function arquivoRepetido(sha256, equipeId, transaction) {
+    return ProvaArquivo.findOne({
+      where: { sha256 },
+      attributes: ["prova_id", "tipo"],
+      include: [{ model: Prova, as: "daProva", where: { equipe_id: equipeId }, attributes: [] }],
+      raw: true,
+      transaction
+    });
   }
 
   async function resumoDaProva(prova) {
@@ -150,10 +169,10 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
   }
 
   // Lê e guarda um PDF (prova ou gabarito) com o texto de cada página. O mesmo arquivo não entra duas vezes.
-  async function guardarPdf({ buffer, nomeArquivo, provaId, tipo, origemUrl, transaction }) {
+  async function guardarPdf({ buffer, nomeArquivo, provaId, equipeId, tipo, origemUrl, transaction }) {
     if (!buffer || buffer.subarray(0, 5).toString("latin1") !== "%PDF-") throw new AppError(400, "O arquivo enviado não é um PDF.");
     const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-    const repetido = await ProvaArquivo.findOne({ where: { sha256 }, attributes: ["prova_id", "tipo"], raw: true, transaction });
+    const repetido = await arquivoRepetido(sha256, equipeId, transaction);
     if (repetido) return { repetido };
 
     let paginas;
@@ -193,14 +212,14 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
     return { caminho };
   }
 
-  async function biblioteca() {
-    const provas = await Prova.findAll({ order: [["ano", "DESC NULLS LAST"], ["created_at", "DESC"]] });
+  async function biblioteca(equipeId) {
+    const provas = await Prova.findAll({ where: { equipe_id: equipeId }, order: [["ano", "DESC NULLS LAST"], ["created_at", "DESC"]] });
     return Promise.all(provas.map(resumoDaProva));
   }
 
   // Nova prova na biblioteca, a partir do PDF. Se veio de um edital, já fica escolhida para ele.
-  async function enviarProva({ buffer, nomeArquivo, campos = {}, editalId = null }) {
-    if (editalId) await editalExistente(editalId);
+  async function enviarProva({ buffer, nomeArquivo, campos = {}, editalId = null, equipeId }) {
+    if (editalId) await editalExistente(editalId, equipeId);
     const dados = {
       banca: textoOpcional(campos.banca),
       orgao: textoOpcional(campos.orgao),
@@ -213,7 +232,7 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
     // O mesmo PDF enviado de novo devolve a prova que já está na biblioteca (e a escolhe para o edital).
     if (buffer && buffer.length) {
       const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-      const repetido = await ProvaArquivo.findOne({ where: { sha256 }, attributes: ["prova_id", "tipo"], raw: true });
+      const repetido = await arquivoRepetido(sha256, equipeId);
       if (repetido) {
         if (repetido.tipo === "gabarito") throw new AppError(409, "Este PDF já está na biblioteca como gabarito de uma prova.");
         if (editalId) await EditalProva.findOrCreate({ where: { edital_id: editalId, prova_id: repetido.prova_id } });
@@ -225,8 +244,8 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
     let gravado = null;
     try {
       await sequelize.transaction(async (transaction) => {
-        await Prova.create({ id, ...dados }, { transaction });
-        const pdf = await guardarPdf({ buffer, nomeArquivo, provaId: id, tipo: "prova", origemUrl, transaction });
+        await Prova.create({ id, equipe_id: equipeId, ...dados }, { transaction });
+        const pdf = await guardarPdf({ buffer, nomeArquivo, provaId: id, equipeId, tipo: "prova", origemUrl, transaction });
         if (pdf.repetido) throw new AppError(409, "Este PDF acabou de ser enviado. Recarregue a página.");
         gravado = pdf.caminho;
         if (editalId) await EditalProva.create({ edital_id: editalId, prova_id: id }, { transaction });
@@ -249,7 +268,7 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
     try {
       await sequelize.transaction(async (transaction) => {
         if (anterior) await anterior.destroy({ transaction });
-        const pdf = await guardarPdf({ buffer, nomeArquivo, provaId: prova.id, tipo: "gabarito", origemUrl, transaction });
+        const pdf = await guardarPdf({ buffer, nomeArquivo, provaId: prova.id, equipeId: prova.equipe_id, tipo: "gabarito", origemUrl, transaction });
         if (pdf.repetido) {
           throw new AppError(409, pdf.repetido.prova_id === prova.id ? "Este PDF já está nesta prova." : "Este PDF já está na biblioteca em outra prova.");
         }
@@ -319,9 +338,10 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
   // A área de provas do edital: as buscas sugeridas, as provas escolhidas e as demais da biblioteca, das mais às
   // menos relevantes.
   async function doEdital(editalId) {
-    const edital = await editalExistente(editalId);
+    const edital = await Edital.findByPk(editalId, { attributes: ["id", "equipe_id", "banca", "orgao", "cargo"], raw: true });
+    if (!edital) throw new AppError(404, "Edital não encontrado.");
     const escolhidas = new Set((await EditalProva.findAll({ where: { edital_id: editalId }, attributes: ["prova_id"], raw: true })).map((e) => e.prova_id));
-    const provas = (await biblioteca()).map((prova) => ({ ...prova, relevancia: relevancia(prova, edital) }));
+    const provas = (await biblioteca(edital.equipe_id)).map((prova) => ({ ...prova, relevancia: relevancia(prova, edital) }));
     const porRelevancia = (a, b) => b.relevancia.pontos - a.relevancia.pontos || (b.ano || 0) - (a.ano || 0);
     return {
       edital,
@@ -332,20 +352,20 @@ function criarProvasService({ sequelize, dirProvas, lerPaginas = pdfTexto.lerPag
   }
 
   async function escolher(editalId, provaId) {
-    await editalExistente(editalId);
+    const edital = await Edital.findByPk(editalId, { attributes: ["equipe_id"], raw: true });
     const prova = await provaExistente(provaId);
+    if (!edital || prova.equipe_id !== edital.equipe_id) throw new AppError(404, "Prova não encontrada na biblioteca.");
     await EditalProva.findOrCreate({ where: { edital_id: editalId, prova_id: prova.id } });
     return doEdital(editalId);
   }
 
   async function desfazerEscolha(editalId, provaId) {
-    await editalExistente(editalId);
     if (!eUuid(provaId)) throw new AppError(404, "Prova não encontrada na biblioteca.");
     await EditalProva.destroy({ where: { edital_id: editalId, prova_id: provaId } });
     return doEdital(editalId);
   }
 
-  return { biblioteca, enviarProva, enviarGabarito, atualizar, excluir, arquivo, doEdital, escolher, desfazerEscolha };
+  return { daEquipe, biblioteca, enviarProva, enviarGabarito, atualizar, excluir, arquivo, doEdital, escolher, desfazerEscolha };
 }
 
 module.exports = { criarProvasService, buscasDoEdital, nomeCurtoDaBanca, relevancia };

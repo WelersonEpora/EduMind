@@ -14,8 +14,11 @@ function criarRotasDeProvas(provasService, leituraService, classificacaoService)
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
+  // A prova da rota precisa ser da equipe (etapa 4a). Fora dela, 404, como se não existisse.
+  router.param("id", (req, res, next, id) => provasService.daEquipe(id, req.equipe.id).then(() => next()));
+
   router.get("/", async (req, res) => {
-    res.json({ data: await provasService.biblioteca() });
+    res.json({ data: await provasService.biblioteca(req.equipe.id) });
   });
 
   // Campos do formulário: banca, orgao, cargo, ano, origem_url, observacoes e, vindo da tela de um edital, edital_id.
@@ -26,7 +29,8 @@ function criarRotasDeProvas(provasService, leituraService, classificacaoService)
       buffer: req.file.buffer,
       nomeArquivo: nomeDoArquivo(req.file),
       campos,
-      editalId: editalId || null
+      editalId: editalId || null,
+      equipeId: req.equipe.id
     });
     res.status(jaExistia ? 200 : 201).json({ data: prova, jaExistia });
   });

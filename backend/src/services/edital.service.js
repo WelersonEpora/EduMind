@@ -10,7 +10,8 @@ const pdfTexto = require("./pdf-texto");
 // Recebe o PDF do edital, guarda o arquivo original e o texto de cada página.
 // A extração de metadados e da árvore com IA (etapa 1b) parte do que é gravado aqui.
 //
-// O mesmo PDF enviado duas vezes (mesmo SHA-256) não cria outro edital: devolve o existente.
+// O mesmo PDF enviado duas vezes à mesma equipe (mesmo SHA-256) não cria outro edital: devolve o existente. Cada
+// equipe tem os seus editais (etapa 4a).
 
 const CAMPOS_DA_LISTA = [
   "id", "arquivo_nome", "arquivo_bytes", "total_paginas", "banca", "orgao", "cargo", "data_publicacao",
@@ -28,16 +29,22 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     return edital;
   }
 
-  function listar() {
-    return Edital.findAll({ attributes: CAMPOS_DA_LISTA, order: [["created_at", "DESC"]], raw: true });
+  // Confere que o edital é da equipe; as rotas chamam antes de qualquer operação com o id (router.param).
+  async function daEquipe(id, equipeId) {
+    const edital = eUuid(id) ? await Edital.findOne({ where: { id, equipe_id: equipeId }, attributes: ["id"], raw: true }) : null;
+    if (!edital) throw new AppError(404, "Edital não encontrado.");
   }
 
-  async function criarAPartirDoPdf({ buffer, nomeArquivo }) {
+  function listar(equipeId) {
+    return Edital.findAll({ where: { equipe_id: equipeId }, attributes: CAMPOS_DA_LISTA, order: [["created_at", "DESC"]], raw: true });
+  }
+
+  async function criarAPartirDoPdf({ buffer, nomeArquivo, equipeId }) {
     if (!buffer || buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
       throw new AppError(400, "O arquivo enviado não é um PDF.");
     }
     const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-    const existente = await Edital.findOne({ where: { arquivo_sha256: sha256 }, attributes: ["id"] });
+    const existente = await Edital.findOne({ where: { equipe_id: equipeId, arquivo_sha256: sha256 }, attributes: ["id"] });
     if (existente) return { edital: await buscar(existente.id), jaExistia: true };
 
     let paginas;
@@ -58,7 +65,7 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     try {
       await sequelize.transaction(async (transaction) => {
         await Edital.create(
-          { id, arquivo_nome: nomeArquivo, arquivo_sha256: sha256, arquivo_bytes: buffer.length, total_paginas: paginas.length },
+          { id, equipe_id: equipeId, arquivo_nome: nomeArquivo, arquivo_sha256: sha256, arquivo_bytes: buffer.length, total_paginas: paginas.length },
           { transaction }
         );
         await EditalPagina.bulkCreate(
@@ -113,7 +120,7 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     return path.join(dirUploads, `${id}.pdf`);
   }
 
-  return { listar, buscar, criarAPartirDoPdf, pagina, conteudo, caminhoDoArquivo };
+  return { daEquipe, listar, buscar, criarAPartirDoPdf, pagina, conteudo, caminhoDoArquivo };
 }
 
 module.exports = { criarEditalService };

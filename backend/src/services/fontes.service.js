@@ -321,8 +321,9 @@ function criarFontesService({
     return { caminho: path.join(dirNormas, versao.arquivo_caminho), tipo: EXTENSOES[extensao] || "application/octet-stream" };
   }
 
-  // Os editais que citam a norma (pelas citações ligadas a ela), para a biblioteca mostrar onde ela é usada.
-  async function editaisQueCitam(normaId) {
+  // Os editais da equipe que citam a norma (pelas citações ligadas a ela), para a biblioteca mostrar onde ela é usada.
+  // A norma é de todos; os editais, só da equipe (etapa 4a).
+  async function editaisQueCitam(normaId, equipeId) {
     const citacoes = await ItemNorma.findAll({
       where: { norma_id: normaId },
       attributes: ["id"],
@@ -331,7 +332,8 @@ function criarFontesService({
           model: EditalItem,
           as: "item",
           attributes: ["edital_id"],
-          include: [{ model: Edital, as: "edital", attributes: ["id", "arquivo_nome", "cargo", "orgao"] }]
+          required: true,
+          include: [{ model: Edital, as: "edital", where: { equipe_id: equipeId }, attributes: ["id", "arquivo_nome", "cargo", "orgao"] }]
         }
       ]
     });
@@ -339,14 +341,14 @@ function criarFontesService({
     return [...editais.values()];
   }
 
-  async function biblioteca() {
+  async function biblioteca(equipeId) {
     const normas = await Norma.findAll({ order: [["nome", "ASC"]] });
-    return Promise.all(normas.map(async (norma) => ({ ...(await resumoDaNorma(norma)), editais: await editaisQueCitam(norma.id) })));
+    return Promise.all(normas.map(async (norma) => ({ ...(await resumoDaNorma(norma)), editais: await editaisQueCitam(norma.id, equipeId) })));
   }
 
-  async function detalharNorma(normaId) {
+  async function detalharNorma(normaId, equipeId) {
     const norma = await normaExistente(normaId);
-    return { ...(await resumoDaNorma(norma)), editais: await editaisQueCitam(norma.id) };
+    return { ...(await resumoDaNorma(norma)), editais: await editaisQueCitam(norma.id, equipeId) };
   }
 
   // Os artigos de uma versão, na ordem do texto (a biblioteca mostra a norma como documento).

@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarProvasService } = require("./provas.service");
 const { criarLeituraService } = require("./leitura.service");
 const { criarClassificacaoService } = require("./classificacao.service");
@@ -25,6 +25,7 @@ const leituraFalsa = async () => ({
 
 async function montar(t, resposta) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const { Norma, NormaVersao, NormaArtigo } = sequelize.models;
   const norma = await Norma.create({ id: crypto.randomUUID(), chave: "tjsp:resolucao:850:2021", tipo: "Resolução", numero: "850", ano: "2021", nome: "Resolução nº 850/2021", jurisdicao: "TJSP", esfera: "tribunal" });
   const versao = await NormaVersao.create({ id: crypto.randomUUID(), norma_id: norma.id, origem: "upload", status: "upload_recebido", processada_em: new Date() });
@@ -32,10 +33,10 @@ async function montar(t, resposta) {
     await NormaArtigo.create({ id: crypto.randomUUID(), versao_id: versao.id, numero, ordem, texto_bruto: `Art. ${numero}. Texto.`, revogado: false, notas: [] });
   }
   const provas = criarProvasService({ sequelize, dirProvas: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-provas-")), lerPaginas: async () => [{ numero: 1, texto: TEXTO }] });
-  const { prova } = await provas.enviarProva({ buffer: Buffer.from("%PDF-1.4 p"), nomeArquivo: "p.pdf", campos: { ano: "2025" } });
+  const { prova } = await provas.enviarProva({ equipeId, buffer: Buffer.from("%PDF-1.4 p"), nomeArquivo: "p.pdf", campos: { ano: "2025" } });
   const leitura = criarLeituraService({ sequelize, gerarJson: leituraFalsa });
   const classificacao = criarClassificacaoService({ sequelize, gerarJson: async () => ({ texto: JSON.stringify(resposta) }) });
-  return { sequelize, norma, prova, provas, leitura, classificacao };
+  return { equipeId, sequelize, norma, prova, provas, leitura, classificacao };
 }
 
 const RESPOSTA = {
@@ -46,7 +47,7 @@ const RESPOSTA = {
 };
 
 test("classificar exige a leitura; grava referências e contagem; revisão do orientador é mantida ao classificar de novo", async (t) => {
-  const { norma, prova, provas, leitura, classificacao } = await montar(t, RESPOSTA);
+  const { equipeId, norma, prova, provas, leitura, classificacao } = await montar(t, RESPOSTA);
   await assert.rejects(classificacao.iniciar(prova.id), { status: 400 });
   await (await leitura.iniciar(prova.id)).concluida;
   await (await classificacao.iniciar(prova.id)).concluida;
@@ -60,7 +61,7 @@ test("classificar exige a leitura; grava referências e contagem; revisão do or
       [2, "nao_juridica", []]
     ]
   );
-  assert.deepEqual((await provas.biblioteca())[0].classificadas, { classificada: 1, a_revisar: 0, nao_juridica: 1 });
+  assert.deepEqual((await provas.biblioteca(equipeId))[0].classificadas, { classificada: 1, a_revisar: 0, nao_juridica: 1 });
 
   // O orientador troca para o art. 99 (não existe) e o 8 relacionado: o código confere de novo.
   const revisada = await classificacao.revisar(prova.id, questoes[0].id, {

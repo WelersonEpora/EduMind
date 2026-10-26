@@ -8,6 +8,7 @@ module.exports = (sequelize) =>
     "Prova",
     {
       id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
+      equipe_id: { type: DataTypes.UUID, allowNull: false },
       banca: { type: DataTypes.TEXT },
       orgao: { type: DataTypes.TEXT },
       cargo: { type: DataTypes.TEXT },

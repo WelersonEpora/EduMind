@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarExtracaoService } = require("./extracao.service");
 const { criarRevisaoService } = require("./revisao.service");
@@ -54,7 +54,9 @@ async function criarEdital(sequelize, nomeArquivo, { aprovar = true } = {}) {
     dirUploads: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-")),
     lerPaginas: async () => PAGINAS
   });
-  const { edital } = await editalService.criarAPartirDoPdf({ buffer: Buffer.from(`%PDF-1.4 ${nomeArquivo}`), nomeArquivo });
+  // A equipe criada pelo montar (a única no banco de teste).
+  const { id: equipeId } = await sequelize.models.Equipe.findOne({ attributes: ["id"], raw: true });
+  const { edital } = await editalService.criarAPartirDoPdf({ equipeId, buffer: Buffer.from(`%PDF-1.4 ${nomeArquivo}`), nomeArquivo });
   const gerarJson = async ({ responseSchema }) => ({
     texto: JSON.stringify(responseSchema.properties.banca ? { banca: null } : ARVORE),
     modelo: "m",
@@ -72,9 +74,10 @@ async function criarEdital(sequelize, nomeArquivo, { aprovar = true } = {}) {
 
 async function montar(t, { pesquisarNaWeb } = {}) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const dirNormas = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-normas-"));
   const service = criarFontesService({ sequelize, dirNormas, pesquisarNaWeb, agora: () => new Date("2026-10-22T21:00:00Z") });
-  return { sequelize, dirNormas, service };
+  return { equipeId, sequelize, dirNormas, service };
 }
 
 test("lista só as normas de itens aprovados, com a identidade proposta", async (t) => {
@@ -96,7 +99,7 @@ test("lista só as normas de itens aprovados, com a identidade proposta", async 
 });
 
 test("confirmar cria a norma na biblioteca e liga as citações; outro edital reaproveita a mesma norma", async (t) => {
-  const { sequelize, service } = await montar(t);
+  const { equipeId, sequelize, service } = await montar(t);
   const { edital } = await criarEdital(sequelize, "a.pdf");
   const [cp] = await service.listar(edital.id);
 
@@ -128,7 +131,7 @@ test("confirmar cria a norma na biblioteca e liga as citações; outro edital re
     nome: "Código Penal"
   });
   assert.equal(mesma.id, norma.id);
-  assert.equal((await service.biblioteca()).length, 1);
+  assert.equal((await service.biblioteca(equipeId)).length, 1);
 
   // Desligar devolve a citação para "a confirmar"; a norma fica na biblioteca.
   assert.deepEqual(await service.desligar(edital.id, { citacoes: cp.citacoes.map((c) => c.id) }), { desligadas: 1 });
@@ -278,7 +281,7 @@ test("o upload divide o texto em artigos e alerta os artigos cobrados alterados 
 });
 
 test("biblioteca: a norma com os editais que a citam e os artigos de cada versão", async (t) => {
-  const { sequelize, service } = await montar(t);
+  const { equipeId, sequelize, service } = await montar(t);
   const { edital } = await criarEdital(sequelize, "a.pdf");
   const [cp] = await service.listar(edital.id);
   const norma = await service.confirmar(edital.id, {
@@ -292,9 +295,13 @@ test("biblioteca: a norma com os editais que a citam e os artigos de cada versã
   const html = "<p>TÍTULO X</p><p>Art. 293. Falsificar. (Redação dada pela Lei nº 1, de 2020)</p><p>Art. 294. Fabricar.</p>";
   const { norma: comTexto } = await service.enviarVersao(norma.id, { buffer: Buffer.from(html), nomeArquivo: "cp.html" });
 
-  const [naBiblioteca] = await service.biblioteca();
+  const [naBiblioteca] = await service.biblioteca(equipeId);
   assert.deepEqual(naBiblioteca.editais.map((e) => e.id), [edital.id]);
-  assert.equal((await service.detalharNorma(norma.id)).editais[0].arquivo_nome, "a.pdf");
+  assert.equal((await service.detalharNorma(norma.id, equipeId)).editais[0].arquivo_nome, "a.pdf");
+  // A norma é de todos; os editais que a citam, só da equipe (etapa 4a).
+  const outraEquipe = await criarEquipe(sequelize, "Outra");
+  assert.deepEqual((await service.detalharNorma(norma.id, outraEquipe)).editais, []);
+  assert.equal((await service.biblioteca(outraEquipe)).length, 1);
 
   const artigos = await service.artigosDaVersao(norma.id, comTexto.versoes[0].id);
   assert.deepEqual(
@@ -305,5 +312,5 @@ test("biblioteca: a norma com os editais que a citam e os artigos de cada versã
     ]
   );
   await assert.rejects(service.artigosDaVersao(norma.id, crypto.randomUUID()), { status: 404 });
-  await assert.rejects(service.detalharNorma(crypto.randomUUID()), { status: 404 });
+  await assert.rejects(service.detalharNorma(crypto.randomUUID(), equipeId), { status: 404 });
 });

@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarProvasService } = require("./provas.service");
 const { criarLeituraService } = require("./leitura.service");
 
@@ -33,6 +33,7 @@ const gerarJson = async ({ responseSchema }) => ({
 
 async function montar(t, { paginasDoGabarito = PAGINAS_DO_GABARITO, gerar = gerarJson } = {}) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   let paginas = PAGINAS_DA_PROVA;
   const dirProvas = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-provas-"));
   const provas = criarProvasService({
@@ -40,14 +41,14 @@ async function montar(t, { paginasDoGabarito = PAGINAS_DO_GABARITO, gerar = gera
     dirProvas,
     lerPaginas: async () => paginas
   });
-  const { prova } = await provas.enviarProva({ buffer: Buffer.from("%PDF-1.4 prova"), nomeArquivo: "prova.pdf" });
+  const { prova } = await provas.enviarProva({ equipeId, buffer: Buffer.from("%PDF-1.4 prova"), nomeArquivo: "prova.pdf" });
   paginas = paginasDoGabarito;
   await provas.enviarGabarito(prova.id, { buffer: Buffer.from("%PDF-1.4 gab"), nomeArquivo: "gab.pdf", campos: { gabarito_situacao: "oficial_definitivo" } });
-  return { sequelize, prova, provas, leitura: criarLeituraService({ sequelize, dirProvas, gerarJson: gerar }) };
+  return { equipeId, sequelize, prova, provas, leitura: criarLeituraService({ sequelize, dirProvas, gerarJson: gerar }) };
 }
 
 test("leitura: grava as questões conferidas; a inventada vai para revisão; a contagem aparece na biblioteca", async (t) => {
-  const { prova, provas, leitura } = await montar(t);
+  const { equipeId, prova, provas, leitura } = await montar(t);
   await (await leitura.iniciar(prova.id)).concluida;
   const { prova: lida, questoes } = await leitura.questoes(prova.id);
   assert.equal(lida.leitura_status, "lida");
@@ -58,7 +59,7 @@ test("leitura: grava as questões conferidas; a inventada vai para revisão; a c
       [2, "A", "a_revisar", ["Enunciado não encontrado no texto da prova."]]
     ]
   );
-  const [naBiblioteca] = await provas.biblioteca();
+  const [naBiblioteca] = await provas.biblioteca(equipeId);
   assert.deepEqual(naBiblioteca.questoes, { valida: 1, a_revisar: 1, descartada: 0 });
 });
 
@@ -90,8 +91,8 @@ test("gabarito só com marca d'água: a IA lê o PDF; o orientador confere o gab
     ];
     return { texto: JSON.stringify({ versoes }), modelo: "m", chave: "paga", tokens: 1 };
   };
-  const { prova, provas, leitura } = await montar(t, { paginasDoGabarito: [{ numero: 1, texto: marca }, { numero: 2, texto: marca }], gerar });
-  const [naBiblioteca] = await provas.biblioteca();
+  const { equipeId, prova, provas, leitura } = await montar(t, { paginasDoGabarito: [{ numero: 1, texto: marca }, { numero: 2, texto: marca }], gerar });
+  const [naBiblioteca] = await provas.biblioteca(equipeId);
   assert.equal(naBiblioteca.gabarito.paginas_com_texto, 0);
 
   await (await leitura.iniciar(prova.id)).concluida;
@@ -149,8 +150,9 @@ test("várias versões sem a do caderno: a resolução da IA indica a versão qu
 
 test("leitura que falha grava o erro; reinício marca as interrompidas", async (t) => {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const provas = criarProvasService({ sequelize, dirProvas: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-provas-")), lerPaginas: async () => PAGINAS_DA_PROVA });
-  const { prova } = await provas.enviarProva({ buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "x.pdf" });
+  const { prova } = await provas.enviarProva({ equipeId, buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "x.pdf" });
   const falha = criarLeituraService({ sequelize, gerarJson: async () => ({ texto: JSON.stringify({ versao: null, questoes: [] }) }) });
   await (await falha.iniciar(prova.id)).concluida;
   const { prova: comErro } = await falha.questoes(prova.id);

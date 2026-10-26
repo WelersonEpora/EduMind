@@ -10,15 +10,19 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_PDF } });
 
+  // O edital e a prova da rota precisam ser da equipe (etapa 4a). Fora dela, 404, como se não existissem.
+  router.param("id", (req, res, next, id) => editalService.daEquipe(id, req.equipe.id).then(() => next()));
+  router.param("provaId", (req, res, next, id) => provasService.daEquipe(id, req.equipe.id).then(() => next()));
+
   router.get("/", async (req, res) => {
-    res.json({ data: await editalService.listar() });
+    res.json({ data: await editalService.listar(req.equipe.id) });
   });
 
   router.post("/", upload.single("arquivo"), async (req, res) => {
     if (!req.file) throw new AppError(400, "Envie o PDF no campo 'arquivo'.");
     // multer entrega o nome em latin1; o navegador manda UTF-8.
     const nomeArquivo = Buffer.from(req.file.originalname, "latin1").toString("utf8");
-    const { edital, jaExistia } = await editalService.criarAPartirDoPdf({ buffer: req.file.buffer, nomeArquivo });
+    const { edital, jaExistia } = await editalService.criarAPartirDoPdf({ buffer: req.file.buffer, nomeArquivo, equipeId: req.equipe.id });
     res.status(jaExistia ? 200 : 201).json({ data: edital, jaExistia });
   });
 

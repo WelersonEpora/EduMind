@@ -6,17 +6,18 @@ const { AppError } = require("../shared/errors");
 
 const TAMANHO_MAXIMO_ARQUIVO = 30 * 1024 * 1024;
 
-// Biblioteca de normas (etapa 2a-1): URL oficial e upload manual das versões.
+// Biblioteca de normas (etapa 2a-1): URL oficial e upload manual das versões. É de todos, não da equipe (etapa 4a):
+// só a lista de editais que citam cada norma vem filtrada pela equipe.
 function criarRotasDeNormas(fontesService) {
   const router = express.Router();
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_ARQUIVO } });
 
   router.get("/", async (req, res) => {
-    res.json({ data: await fontesService.biblioteca() });
+    res.json({ data: await fontesService.biblioteca(req.equipe.id) });
   });
 
   router.get("/:id", async (req, res) => {
-    res.json({ data: await fontesService.detalharNorma(req.params.id) });
+    res.json({ data: await fontesService.detalharNorma(req.params.id, req.equipe.id) });
   });
 
   router.get("/:id/versoes/:versaoId/artigos", async (req, res) => {

@@ -17,14 +17,23 @@ const banco = {
   password: process.env.POSTGRES_PASSWORD || ""
 };
 
+const nodeEnv = process.env.NODE_ENV || "development";
+
 module.exports = {
-  nodeEnv: process.env.NODE_ENV || "development",
+  nodeEnv,
   appPort: Number(process.env.APP_PORT || 3000),
   // Arquivos enviados (PDFs dos editais, normas baixadas). Fora do git.
   dataDir: path.resolve(RAIZ_DO_PROJETO, process.env.DATA_DIR || "data"),
   banco,
   // Os testes apagam os dados a cada caso: nunca apontar para o banco de desenvolvimento.
   bancoDeTeste: { ...banco, database: process.env.POSTGRES_DATABASE_TEST || "edumind_test" },
+  // Sessão (etapa 4a), como no FinMind: JWT num cookie httpOnly, 12 h. Sem JWT_SECRET o servidor não sobe.
+  // O cookie só é Secure em produção (precisa de HTTPS); COOKIE_SECURE=false desliga, para servidor sem HTTPS.
+  sessao: {
+    segredo: process.env.JWT_SECRET || "",
+    duracaoMs: 12 * 60 * 60 * 1000,
+    cookieSecure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === "true" : nodeEnv === "production"
+  },
   // Fora das variáveis obrigatórias: sem chave, o resto do EduMind (upload, texto por página,
   // revisão) continua funcionando. Só a extração com IA falha, de forma clara, quando chamada.
   // Mesmo padrão de chaves do FinMind e do AgroMind: a gratuita primeiro, a paga como reserva.

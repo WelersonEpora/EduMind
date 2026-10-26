@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarProvasService, buscasDoEdital, nomeCurtoDaBanca, relevancia } = require("./provas.service");
 
@@ -14,6 +14,7 @@ const pdf = (conteudo) => Buffer.from(`%PDF-1.4 ${conteudo}`);
 
 async function montar(t, { paginas = [{ numero: 1, texto: "1. Assinale a alternativa correta." }] } = {}) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const dirProvas = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-provas-"));
   const service = criarProvasService({ sequelize, dirProvas, lerPaginas: async () => paginas, agora: () => new Date("2026-10-22T12:00:00Z") });
   const editalService = criarEditalService({
@@ -21,12 +22,12 @@ async function montar(t, { paginas = [{ numero: 1, texto: "1. Assinale a alterna
     dirUploads: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-")),
     lerPaginas: async () => [{ numero: 1, texto: "Edital" }]
   });
-  const { edital } = await editalService.criarAPartirDoPdf({ buffer: pdf("edital"), nomeArquivo: "edital.pdf" });
+  const { edital } = await editalService.criarAPartirDoPdf({ equipeId, buffer: pdf("edital"), nomeArquivo: "edital.pdf" });
   await sequelize.models.Edital.update(
     { banca: "Fundação para o Vestibular da UNESP - VUNESP", orgao: "Tribunal de Justiça do Estado de São Paulo", cargo: "Escrevente Técnico Judiciário" },
     { where: { id: edital.id } }
   );
-  return { sequelize, dirProvas, service, edital };
+  return { equipeId, sequelize, dirProvas, service, edital };
 }
 
 test("buscas sugeridas: links do Google restritos a cada fonte, montados a partir do edital", () => {
@@ -63,8 +64,8 @@ test("relevância: mesma banca pesa mais que órgão e cargo", () => {
 });
 
 test("upload da prova: entra na biblioteca, fica escolhida para o edital; o mesmo PDF não duplica", async (t) => {
-  const { service, edital, dirProvas } = await montar(t);
-  const { prova, jaExistia } = await service.enviarProva({
+  const { equipeId, service, edital, dirProvas } = await montar(t);
+  const { prova, jaExistia } = await service.enviarProva({ equipeId,
     buffer: pdf("prova 2017"),
     nomeArquivo: "tjsp-2017.pdf",
     campos: { banca: "VUNESP", orgao: "TJSP", cargo: "Escrevente", ano: "2017", origem_url: "https://www.estudegratis.com.br/provas/x" },
@@ -77,25 +78,25 @@ test("upload da prova: entra na biblioteca, fica escolhida para o edital; o mesm
   );
   assert.equal(fs.readdirSync(dirProvas).length, 1);
 
-  const denovo = await service.enviarProva({ buffer: pdf("prova 2017"), nomeArquivo: "outro.pdf" });
+  const denovo = await service.enviarProva({ equipeId, buffer: pdf("prova 2017"), nomeArquivo: "outro.pdf" });
   assert.deepEqual([denovo.jaExistia, denovo.prova.id], [true, prova.id]);
-  assert.equal((await service.biblioteca()).length, 1);
+  assert.equal((await service.biblioteca(equipeId)).length, 1);
 
-  await assert.rejects(service.enviarProva({ buffer: Buffer.from("não é pdf"), nomeArquivo: "x.pdf" }), { status: 400 });
-  await assert.rejects(service.enviarProva({ buffer: pdf("a"), nomeArquivo: "a.pdf", campos: { ano: "1500" } }), { status: 400 });
-  await assert.rejects(service.enviarProva({ buffer: pdf("b"), nomeArquivo: "b.pdf", campos: { origem_url: "estudegratis" } }), { status: 400 });
-  assert.equal((await service.biblioteca()).length, 1);
+  await assert.rejects(service.enviarProva({ equipeId, buffer: Buffer.from("não é pdf"), nomeArquivo: "x.pdf" }), { status: 400 });
+  await assert.rejects(service.enviarProva({ equipeId, buffer: pdf("a"), nomeArquivo: "a.pdf", campos: { ano: "1500" } }), { status: 400 });
+  await assert.rejects(service.enviarProva({ equipeId, buffer: pdf("b"), nomeArquivo: "b.pdf", campos: { origem_url: "estudegratis" } }), { status: 400 });
+  assert.equal((await service.biblioteca(equipeId)).length, 1);
 });
 
 test("PDF escaneado entra, marcado sem texto", async (t) => {
-  const { service } = await montar(t, { paginas: [{ numero: 1, texto: "" }, { numero: 2, texto: " " }] });
-  const { prova } = await service.enviarProva({ buffer: pdf("escaneada"), nomeArquivo: "scan.pdf" });
+  const { equipeId, service } = await montar(t, { paginas: [{ numero: 1, texto: "" }, { numero: 2, texto: " " }] });
+  const { prova } = await service.enviarProva({ equipeId, buffer: pdf("escaneada"), nomeArquivo: "scan.pdf" });
   assert.deepEqual([prova.prova.total_paginas, prova.prova.paginas_com_texto], [2, 0]);
 });
 
 test("gabarito: exige a origem, substitui o anterior e não aceita o PDF da prova", async (t) => {
-  const { service, dirProvas } = await montar(t);
-  const { prova } = await service.enviarProva({ buffer: pdf("prova"), nomeArquivo: "prova.pdf" });
+  const { equipeId, service, dirProvas } = await montar(t);
+  const { prova } = await service.enviarProva({ equipeId, buffer: pdf("prova"), nomeArquivo: "prova.pdf" });
   await assert.rejects(service.enviarGabarito(prova.id, { buffer: pdf("gab"), nomeArquivo: "g.pdf", campos: {} }), { status: 400 });
   await assert.rejects(
     service.enviarGabarito(prova.id, { buffer: pdf("prova"), nomeArquivo: "g.pdf", campos: { gabarito_situacao: "nao_oficial" } }),
@@ -111,10 +112,10 @@ test("gabarito: exige a origem, substitui o anterior e não aceita o PDF da prov
 });
 
 test("editar, escolher para o edital, desfazer e excluir", async (t) => {
-  const { service, edital, dirProvas } = await montar(t);
-  const { prova: escolhida } = await service.enviarProva({ buffer: pdf("1"), nomeArquivo: "1.pdf", campos: { banca: "FGV" }, editalId: edital.id });
-  const { prova: outra } = await service.enviarProva({ buffer: pdf("2"), nomeArquivo: "2.pdf", campos: { banca: "VUNESP", ano: "2021" } });
-  const { prova: terceira } = await service.enviarProva({ buffer: pdf("3"), nomeArquivo: "3.pdf", campos: { banca: "Cebraspe" } });
+  const { equipeId, service, edital, dirProvas } = await montar(t);
+  const { prova: escolhida } = await service.enviarProva({ equipeId, buffer: pdf("1"), nomeArquivo: "1.pdf", campos: { banca: "FGV" }, editalId: edital.id });
+  const { prova: outra } = await service.enviarProva({ equipeId, buffer: pdf("2"), nomeArquivo: "2.pdf", campos: { banca: "VUNESP", ano: "2021" } });
+  const { prova: terceira } = await service.enviarProva({ equipeId, buffer: pdf("3"), nomeArquivo: "3.pdf", campos: { banca: "Cebraspe" } });
 
   let area = await service.doEdital(edital.id);
   assert.deepEqual(area.escolhidas.map((p) => p.id), [escolhida.id]);
@@ -133,6 +134,6 @@ test("editar, escolher para o edital, desfazer e excluir", async (t) => {
   await assert.rejects(service.atualizar(crypto.randomUUID(), { ano: "2019" }), { status: 404 });
 
   await service.excluir(terceira.id);
-  assert.equal((await service.biblioteca()).length, 2);
+  assert.equal((await service.biblioteca(equipeId)).length, 2);
   assert.equal(fs.readdirSync(dirProvas).length, 2);
 });

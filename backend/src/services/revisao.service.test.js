@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarExtracaoService } = require("./extracao.service");
 const { criarRevisaoService } = require("./revisao.service");
@@ -65,12 +65,13 @@ const ARVORE = {
 
 async function montar(t) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const editalService = criarEditalService({
     sequelize,
     dirUploads: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-")),
     lerPaginas: async () => PAGINAS
   });
-  const { edital } = await editalService.criarAPartirDoPdf({ buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "e.pdf" });
+  const { edital } = await editalService.criarAPartirDoPdf({ equipeId, buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "e.pdf" });
   const gerarJson = async ({ responseSchema }) => ({
     texto: JSON.stringify(responseSchema.properties.banca ? METADADOS : ARVORE),
     modelo: "m",
@@ -82,7 +83,7 @@ async function montar(t) {
   const service = criarRevisaoService({ sequelize, agora: () => new Date("2026-10-22T20:00:00Z") });
   const itens = await editalService.conteudo(edital.id);
   const porTexto = (inicio) => itens.find((i) => i.texto.startsWith(inicio));
-  return { edital, editalService, extracaoService, service, itens, porTexto };
+  return { equipeId, edital, editalService, extracaoService, service, itens, porTexto };
 }
 
 test("aprova, rejeita e volta a rascunho um item da árvore", async (t) => {

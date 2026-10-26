@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarExtracaoService, montarMetadados } = require("./extracao.service");
 
@@ -83,19 +83,20 @@ function geminiFalso(resposta = RESPOSTA_DA_IA, arvore = ARVORE_DA_IA) {
 // `antesDeResponder`: promessa que o Gemini falso espera antes de responder (para segurar a extração em andamento).
 async function montar(t, resposta, arvore, { antesDeResponder = Promise.resolve() } = {}) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const editalService = criarEditalService({
     sequelize,
     dirUploads: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-")),
     lerPaginas: async () => PAGINAS
   });
-  const { edital } = await editalService.criarAPartirDoPdf({ buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "e.pdf" });
+  const { edital } = await editalService.criarAPartirDoPdf({ equipeId, buffer: Buffer.from("%PDF-1.4 x"), nomeArquivo: "e.pdf" });
   const gemini = geminiFalso(resposta, arvore);
   const gerarJson = async (pedido) => {
     await antesDeResponder;
     return gemini.gerarJson(pedido);
   };
   const service = criarExtracaoService({ sequelize, gerarJson, agora: () => new Date("2026-10-22T15:00:00Z") });
-  return { edital, editalService, service, gemini };
+  return { equipeId, edital, editalService, service, gemini };
 }
 
 test("extrai os metadados, confere cada trecho e grava no edital", async (t) => {

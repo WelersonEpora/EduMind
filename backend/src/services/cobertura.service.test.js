@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { abrirBancoDeTeste } = require("../../test/helpers/banco");
+const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarExtracaoService } = require("./extracao.service");
 const { criarRevisaoService } = require("./revisao.service");
@@ -49,12 +49,13 @@ const ARVORE = {
 
 async function montar(t) {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   const editalService = criarEditalService({
     sequelize,
     dirUploads: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-")),
     lerPaginas: async () => PAGINAS
   });
-  const { edital } = await editalService.criarAPartirDoPdf({ buffer: Buffer.from("%PDF-1.4 cobertura"), nomeArquivo: "a.pdf" });
+  const { edital } = await editalService.criarAPartirDoPdf({ equipeId, buffer: Buffer.from("%PDF-1.4 cobertura"), nomeArquivo: "a.pdf" });
   const gerarJson = async ({ responseSchema }) => ({
     texto: JSON.stringify(responseSchema.properties.banca ? { banca: null } : ARVORE),
     modelo: "m",
@@ -72,7 +73,7 @@ async function montar(t) {
     dirNormas: fs.mkdtempSync(path.join(os.tmpdir(), "edumind-normas-")),
     agora: () => new Date("2026-10-22T21:00:00Z")
   });
-  return { sequelize, edital, fontes, service: criarCoberturaService({ sequelize }) };
+  return { equipeId, sequelize, edital, fontes, service: criarCoberturaService({ sequelize }) };
 }
 
 async function confirmar(fontes, edital, chave, identidade) {
@@ -104,7 +105,7 @@ test("versão do edital: a mais recente até a data do edital; sem nenhuma, a ma
 });
 
 test("cobertura: encontrado, revogado, faltando, letra no intervalo, vigência e norma inteira", async (t) => {
-  const { edital, fontes, service } = await montar(t);
+  const { equipeId, edital, fontes, service } = await montar(t);
   const cp = await confirmar(fontes, edital, "br:decreto-lei:2848:1940", {
     jurisdicao: "BR",
     tipo: "Decreto-Lei",
@@ -154,7 +155,7 @@ test("cobertura: encontrado, revogado, faltando, letra no intervalo, vigência e
   });
 
   // Norma inteira com texto: todos os artigos da versão entram.
-  const estatuto = (await fontes.biblioteca()).find((n) => n.chave === "sp:lei:10261:1968");
+  const estatuto = (await fontes.biblioteca(equipeId)).find((n) => n.chave === "sp:lei:10261:1968");
   await fontes.enviarVersao(estatuto.id, { buffer: Buffer.from("<p>Art. 1º Primeiro.</p><p>Art. 2º Segundo.</p>"), nomeArquivo: "e.html" });
   const depois = await service.cobertura(edital.id);
   assert.deepEqual(
@@ -168,6 +169,7 @@ test("cobertura: encontrado, revogado, faltando, letra no intervalo, vigência e
 
 test("cobertura de edital inexistente é 404", async (t) => {
   const sequelize = await abrirBancoDeTeste(t);
+  const equipeId = await criarEquipe(sequelize);
   await assert.rejects(criarCoberturaService({ sequelize }).cobertura("nao-e-uuid"), { status: 404 });
 });
 

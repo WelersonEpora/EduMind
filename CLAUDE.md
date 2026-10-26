@@ -21,8 +21,11 @@ citadas. Edital de teste: TJSP Escrevente Técnico Judiciário 2025 (Vunesp).
   schema; nunca editar uma migration já aplicada e nunca usar `sequelize.sync()`.
 - Frontend: Vue 3 + Vite + PrimeVue + vue-router + axios. Paleta e menu lateral do AgroMind.
 - IA: Gemini pela API REST (provider no padrão do FinMind: chave gratuita primeiro, paga como reserva).
-- Docker só para o Postgres compartilhado; a aplicação roda direto no Node. Sem autenticação, sem
-  frameworks de agentes.
+- Docker só para o Postgres compartilhado; a aplicação roda direto no Node. Sem frameworks de agentes.
+- Login e equipes (etapa 4a, no molde do Personal Assistant): JWT num cookie httpOnly, como no FinMind. Cada usuário
+  está em uma ou mais equipes, com papel `orientador`, `professor` ou `aluno`; a tela manda a equipe no cabeçalho
+  `X-Equipe-Id`. Editais e provas são da equipe (nunca aparecem para outra); a biblioteca de normas é de todos. As
+  permissões por papel ainda não foram definidas.
 
 ## Regras que não mudam
 

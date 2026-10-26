@@ -7,6 +7,7 @@ module.exports = (sequelize) =>
     "Edital",
     {
       id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
+      equipe_id: { type: DataTypes.UUID, allowNull: false },
       arquivo_nome: { type: DataTypes.TEXT, allowNull: false },
       arquivo_sha256: { type: DataTypes.STRING(64), allowNull: false },
       arquivo_bytes: { type: DataTypes.INTEGER, allowNull: false },

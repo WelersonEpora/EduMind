@@ -10,6 +10,8 @@ const emTeste = env.nodeEnv === "test" || Boolean(process.env.NODE_TEST_CONTEXT)
 
 const logger = pino({
   level: emTeste ? "silent" : emProducao ? "info" : "debug",
+  // O cookie de sessão (etapa 4a) nunca vai para o log.
+  redact: ["req.headers.cookie", 'res.headers["set-cookie"]'],
   transport:
     emProducao || emTeste
       ? undefined

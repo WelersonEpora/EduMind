@@ -5,11 +5,19 @@ const env = require("./config/env");
 const logger = require("./shared/logger");
 const { conectar } = require("./db");
 const { criarApp } = require("./app");
+const { criarSessao } = require("./shared/sessao");
 const { criarExtracaoService } = require("./services/extracao.service");
 const { criarLeituraService } = require("./services/leitura.service");
 const { criarClassificacaoService } = require("./services/classificacao.service");
 
 async function iniciar() {
+  let sessao;
+  try {
+    sessao = criarSessao(env.sessao);
+  } catch (erro) {
+    logger.fatal(erro.message);
+    process.exit(1);
+  }
   const sequelize = conectar(env.banco);
   try {
     await sequelize.authenticate();
@@ -29,7 +37,7 @@ async function iniciar() {
   const classificacaoService = criarClassificacaoService({ sequelize });
   const classificacoesInterrompidas = await classificacaoService.marcarInterrompidas();
   if (classificacoesInterrompidas > 0) logger.warn(`${classificacoesInterrompidas} classificação(ões) interrompida(s) pelo reinício marcada(s) como erro.`);
-  const app = criarApp({ sequelize, dataDir: env.dataDir, extracaoService, leituraService, classificacaoService });
+  const app = criarApp({ sequelize, dataDir: env.dataDir, sessao, extracaoService, leituraService, classificacaoService });
   app.listen(env.appPort, () => {
     logger.info(`EduMind backend na porta ${env.appPort} (banco ${env.banco.database}, arquivos em ${env.dataDir})`);
   });

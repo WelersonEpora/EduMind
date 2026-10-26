@@ -9,12 +9,16 @@
     "start": "node src/server.js",
     "db:migrate": "sequelize-cli db:migrate",
     "db:migrate:undo": "sequelize-cli db:migrate:undo",
+    "db:seed": "sequelize-cli db:seed:all",
     "pretest": "sequelize-cli db:migrate --env test",
     "test": "node --test --test-concurrency=1 \"src/**/*.test.js\""
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
     "dotenv": "^16.6.1",
     "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "pdfjs-dist": "^4.10.38",
     "pg": "^8.23.1",
