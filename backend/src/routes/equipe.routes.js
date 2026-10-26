@@ -21,9 +21,9 @@ function criarRotasDaEquipe(equipeService) {
     res.status(201).json({ data: membro, contaJaExistia });
   });
 
-  // { papel } e/ou { ativo }.
+  // { papel, ativo } e, se a conta é só desta equipe, { nome, email, senha }.
   router.patch("/membros/:membroId", exigirOrientador, async (req, res) => {
-    res.json({ data: await equipeService.alterarMembro(req.equipe.id, req.params.membroId, req.body || {}) });
+    res.json({ data: await equipeService.alterarMembro(req.equipe.id, req.params.membroId, req.body || {}, { quemAltera: req.usuario.id }) });
   });
 
   return router;

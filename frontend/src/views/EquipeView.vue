@@ -4,13 +4,13 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
-import Select from 'primevue/select'
 import Tag from 'primevue/tag'
-import { alterarMembro, buscarEquipe, renomearEquipe } from '../services/equipe.service'
+import { buscarEquipe, renomearEquipe } from '../services/equipe.service'
 import MembroIncluirModal from '../components/equipe/MembroIncluirModal.vue'
+import MembroEditarModal from '../components/equipe/MembroEditarModal.vue'
 import { useSessao, NOMES_DOS_PAPEIS } from '../composables/useSessao'
 
-// A equipe atual e os membros dela (etapa 4b-2). Todos veem; só o orientador inclui, muda o papel, desativa e
+// A equipe atual e os membros dela (etapa 4b-2). Todos veem a lista; só o orientador inclui, edita (num modal) e
 // renomeia. Quem é incluído com um e-mail que já tem conta entra com a senha que já tinha.
 
 const toast = useToast()
@@ -19,7 +19,6 @@ const { usuario, equipeAtual, carregar: recarregarSessao } = useSessao()
 const equipe = ref(null)
 const erro = ref(null)
 const souOrientador = computed(() => equipeAtual.value?.papel === 'orientador')
-const opcoesDePapel = Object.entries(NOMES_DOS_PAPEIS).map(([valor, rotulo]) => ({ valor, rotulo }))
 
 async function carregar() {
   try {
@@ -61,16 +60,22 @@ async function aoIncluir({ data: membro, contaJaExistia }) {
   await carregar()
 }
 
-// Alterar papel ou ativar/desativar. Mexer em si mesmo atualiza a sessão (o menu e o papel mudam).
-async function alterar(membro, alteracoes) {
-  try {
-    await alterarMembro(membro.id, alteracoes)
-    if (membro.usuario_id === usuario.value?.id) await recarregarSessao()
-    await carregar()
-  } catch (e) {
-    toast.add({ severity: 'error', summary: 'Não alterou', detail: e.message, life: 6000 })
-    await carregar()
-  }
+// Editar: no modal. Mexer em si mesmo (o papel) atualiza a sessão: o menu e o papel mudam.
+const editando = ref(null)
+const editarAberto = ref(false)
+function editar(membro) {
+  editando.value = membro
+  editarAberto.value = true
+}
+async function aoAlterar({ membro, senhaRedefinida }) {
+  toast.add({
+    severity: 'success',
+    summary: `Dados de ${membro.nome} salvos`,
+    detail: senhaRedefinida ? 'Passe a nova senha para a pessoa.' : undefined,
+    life: senhaRedefinida ? 9000 : 4000
+  })
+  if (membro.usuario_id === usuario.value?.id) await recarregarSessao()
+  await carregar()
 }
 </script>
 
@@ -114,28 +119,10 @@ async function alterar(membro, alteracoes) {
               <span class="nome">{{ membro.nome }}<em v-if="membro.usuario_id === usuario?.id"> (você)</em></span>
               <span class="email">{{ membro.email }}</span>
             </td>
-            <td>
-              <Select
-                v-if="souOrientador"
-                :model-value="membro.papel"
-                :options="opcoesDePapel"
-                option-label="rotulo"
-                option-value="valor"
-                size="small"
-                :aria-label="`Papel de ${membro.nome}`"
-                @update:model-value="(papel) => alterar(membro, { papel })"
-              />
-              <span v-else>{{ NOMES_DOS_PAPEIS[membro.papel] }}</span>
-            </td>
+            <td>{{ NOMES_DOS_PAPEIS[membro.papel] }}</td>
             <td><Tag :value="membro.ativo ? 'ativo' : 'desativado'" :severity="membro.ativo ? 'success' : 'secondary'" /></td>
             <td v-if="souOrientador" class="acoes">
-              <Button
-                :label="membro.ativo ? 'Desativar' : 'Reativar'"
-                size="small"
-                text
-                :severity="membro.ativo ? 'danger' : 'secondary'"
-                @click="alterar(membro, { ativo: !membro.ativo })"
-              />
+              <Button label="Editar" icon="pi pi-pencil" size="small" text @click="editar(membro)" />
             </td>
           </tr>
         </tbody>
@@ -143,6 +130,13 @@ async function alterar(membro, alteracoes) {
     </section>
 
     <MembroIncluirModal v-if="souOrientador" v-model:visible="incluirAberto" @incluido="aoIncluir" />
+    <MembroEditarModal
+      v-if="souOrientador"
+      v-model:visible="editarAberto"
+      :membro="editando"
+      :sou-eu="editando?.usuario_id === usuario?.id"
+      @alterado="aoAlterar"
+    />
   </template>
 </template>
 

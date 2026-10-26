@@ -157,3 +157,39 @@ test("trocar a própria senha: exige a atual e o tamanho mínimo", async (t) => 
   assert.equal((await loginCom(base, "ana@teste.br", SENHA)).status, 401);
   assert.equal((await loginCom(base, "ana@teste.br", "nova-senha-1")).status, 200);
 });
+
+test("editar a conta: só de quem é só desta equipe e não é administrador; a própria, em Minha conta", async (t) => {
+  const { sequelize, base } = await subir(t);
+  const [alfa, beta] = [await criarEquipe(sequelize, "Alfa"), await criarEquipe(sequelize, "Beta")];
+  await criarUsuario(sequelize, { email: "ori@teste.br", equipes: [{ id: alfa, papel: "orientador" }] });
+  await criarUsuario(sequelize, { email: "so-alfa@teste.br", nome: "Só Alfa", equipes: [{ id: alfa, papel: "aluno" }] });
+  await criarUsuario(sequelize, { email: "duas@teste.br", equipes: [{ id: alfa, papel: "professor" }, { id: beta, papel: "orientador", ativo: false }] });
+  await criarUsuario(sequelize, { email: "admin@teste.br", admin: true, equipes: [{ id: alfa, papel: "aluno" }] });
+  const api = await entrar(base, "ori@teste.br");
+  const { data } = await (await api(`${base}/api/v1/equipe`)).json();
+  const membro = Object.fromEntries(data.membros.map((m) => [m.email, m]));
+  assert.deepEqual(
+    Object.fromEntries(data.membros.map((m) => [m.email, m.conta_editavel])),
+    { "ori@teste.br": true, "so-alfa@teste.br": true, "duas@teste.br": false, "admin@teste.br": false }
+  );
+  const patch = (email, corpo) => api(`${base}/api/v1/equipe/membros/${membro[email].id}`, json("PATCH", corpo));
+
+  // Quem é só desta equipe: o orientador corrige o nome e o e-mail e redefine a senha, junto com o papel.
+  const editado = await patch("so-alfa@teste.br", { nome: "Aluno Alfa", email: "Novo@Teste.br", senha: "redefinida-1", papel: "professor" });
+  assert.equal(editado.status, 200);
+  const corpo = (await editado.json()).data;
+  assert.deepEqual([corpo.nome, corpo.email, corpo.papel], ["Aluno Alfa", "novo@teste.br", "professor"]);
+  assert.equal((await loginCom(base, "novo@teste.br", "redefinida-1")).status, 200);
+  assert.equal((await loginCom(base, "so-alfa@teste.br", SENHA)).status, 401);
+
+  assert.equal((await patch("so-alfa@teste.br", { email: "duas@teste.br" })).status, 409);
+  assert.equal((await patch("so-alfa@teste.br", { senha: "curta" })).status, 400);
+  assert.equal((await patch("so-alfa@teste.br", { nome: " " })).status, 400);
+
+  // Conta em outra equipe (mesmo desativada lá), de administrador ou a própria: a conta não muda; o vínculo, sim.
+  for (const email of ["duas@teste.br", "admin@teste.br", "ori@teste.br"]) {
+    assert.equal((await patch(email, { senha: "tomada-123" })).status, 403, email);
+    assert.equal((await loginCom(base, email, "tomada-123")).status, 401, email);
+  }
+  assert.equal((await (await patch("duas@teste.br", { papel: "aluno", ativo: false })).json()).data.ativo, false);
+});

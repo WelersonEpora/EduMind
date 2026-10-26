@@ -12,6 +12,9 @@ const { PAPEIS } = require("../models/membro");
 //   à equipe sem apagar nada.
 // - Quem é incluído com um e-mail que já tem conta só entra na equipe: a senha e o nome dele não mudam.
 // - A equipe nunca fica sem orientador ativo.
+// - O orientador edita nome, e-mail e senha só de quem é só desta equipe e não é administrador (conta_editavel): a
+//   conta é da pessoa, não da equipe. Sem essa trava, quem orienta uma equipe poderia incluir o e-mail de alguém de
+//   outra equipe e trocar a senha dela. A própria conta se muda em Minha conta, com a senha atual.
 // - O administrador da plataforma cria as equipes, cada uma já com o seu orientador.
 
 const textoObrigatorio = (valor, nome) => {
@@ -34,23 +37,35 @@ function papelValido(valor) {
 function criarEquipeService({ sequelize }) {
   const { Usuario, Equipe, Membro } = sequelize.models;
 
-  const membroParaTela = (m) => ({
-    id: m.id,
-    usuario_id: m.usuario.id,
-    nome: m.usuario.nome,
-    email: m.usuario.email,
-    papel: m.papel,
-    ativo: m.ativo,
-    created_at: m.created_at
-  });
+  // Os usuários (dentre os ids) que também estão em alguma outra equipe, ativos ou não.
+  async function emOutrasEquipes(equipeId, usuarioIds, transaction) {
+    if (usuarioIds.length === 0) return new Set();
+    const linhas = await Membro.findAll({
+      where: { usuario_id: usuarioIds, equipe_id: { [sequelize.Sequelize.Op.ne]: equipeId } },
+      attributes: ["usuario_id"],
+      raw: true,
+      transaction
+    });
+    return new Set(linhas.map((l) => l.usuario_id));
+  }
 
   async function membros(equipeId) {
     const lista = await Membro.findAll({
       where: { equipe_id: equipeId },
-      include: [{ model: Usuario, as: "usuario", attributes: ["id", "nome", "email"] }],
+      include: [{ model: Usuario, as: "usuario", attributes: ["id", "nome", "email", "admin"] }],
       order: [["ativo", "DESC"], [{ model: Usuario, as: "usuario" }, "nome", "ASC"]]
     });
-    return lista.map(membroParaTela);
+    const foraDaqui = await emOutrasEquipes(equipeId, lista.map((m) => m.usuario.id));
+    return lista.map((m) => ({
+      id: m.id,
+      usuario_id: m.usuario.id,
+      nome: m.usuario.nome,
+      email: m.usuario.email,
+      papel: m.papel,
+      ativo: m.ativo,
+      conta_editavel: !m.usuario.admin && !foraDaqui.has(m.usuario.id),
+      created_at: m.created_at
+    }));
   }
 
   async function equipe(equipeId) {
@@ -90,18 +105,37 @@ function criarEquipeService({ sequelize }) {
     return { membro: (await membros(equipeId)).find((m) => m.id === id), contaJaExistia };
   }
 
-  // Muda o papel e/ou ativa/desativa. A equipe precisa continuar com pelo menos um orientador ativo.
-  async function alterarMembro(equipeId, membroId, { papel, ativo } = {}) {
-    if (papel === undefined && ativo === undefined) throw new AppError(400, "Nada para alterar.");
-    if (ativo !== undefined && typeof ativo !== "boolean") throw new AppError(400, 'Indique "ativo": true ou false.');
-    const alteracoes = {};
-    if (papel !== undefined) alteracoes.papel = papelValido(papel);
-    if (ativo !== undefined) alteracoes.ativo = ativo;
+  // Muda o vínculo (papel, ativo) e, se a conta for editável, a conta (nome, email, senha). A equipe precisa continuar
+  // com pelo menos um orientador ativo. quemAltera: o usuário da sessão (a própria conta se muda em Minha conta).
+  async function alterarMembro(equipeId, membroId, { papel, ativo, nome, email, senha: senhaNova } = {}, { quemAltera } = {}) {
+    const vinculo = {};
+    if (papel !== undefined) vinculo.papel = papelValido(papel);
+    if (ativo !== undefined) {
+      if (typeof ativo !== "boolean") throw new AppError(400, 'Indique "ativo": true ou false.');
+      vinculo.ativo = ativo;
+    }
+    const conta = {};
+    if (nome !== undefined) conta.nome = textoObrigatorio(nome, "o nome");
+    if (email !== undefined) conta.email = emailValido(email);
+    if (senhaNova !== undefined) conta.senha_hash = await senha.gerarHash(senha.validar(senhaNova));
+    if (Object.keys(vinculo).length === 0 && Object.keys(conta).length === 0) throw new AppError(400, "Nada para alterar.");
 
     await sequelize.transaction(async (transaction) => {
       const membro = eUuid(membroId) ? await Membro.findOne({ where: { id: membroId, equipe_id: equipeId }, transaction, lock: true }) : null;
       if (!membro) throw new AppError(404, "Membro não encontrado nesta equipe.");
-      await membro.update(alteracoes, { transaction });
+      if (Object.keys(conta).length) {
+        if (membro.usuario_id === quemAltera) throw new AppError(403, "Para mudar o seu nome, e-mail ou senha, use Minha conta.");
+        const usuario = await Usuario.findByPk(membro.usuario_id, { transaction, lock: true });
+        if (usuario.admin || (await emOutrasEquipes(equipeId, [usuario.id], transaction)).size) {
+          throw new AppError(403, "Esta pessoa também está em outra equipe: só ela muda o nome, o e-mail e a senha, em Minha conta.");
+        }
+        if (conta.email && conta.email !== usuario.email) {
+          const dono = await Usuario.findOne({ where: { email: conta.email }, attributes: ["id"], raw: true, transaction });
+          if (dono) throw new AppError(409, "Este e-mail já é de outra conta.");
+        }
+        await usuario.update(conta, { transaction });
+      }
+      if (Object.keys(vinculo).length) await membro.update(vinculo, { transaction });
       const orientadores = await Membro.count({ where: { equipe_id: equipeId, papel: "orientador", ativo: true }, transaction });
       if (orientadores === 0) throw new AppError(409, "A equipe precisa de pelo menos um orientador ativo.");
     });
