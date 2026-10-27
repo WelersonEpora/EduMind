@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useEditais } from '../composables/useEditais'
+import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import FonteNorma from '../components/fontes/FonteNorma.vue'
 import {
@@ -49,6 +50,15 @@ const resumo = computed(() => ({
   comTexto: fontes.value.filter((f) => f.confirmada && f.norma.versoes.length > 0).length
 }))
 
+// Pendente, como no número da aba: falta confirmar a identidade ou falta o texto.
+const pendente = (fonte) => !fonte.confirmada || fonte.norma.versoes.length === 0
+const soPendentes = ref(false)
+const visiveis = computed(() => (soPendentes.value ? fontes.value.filter(pendente) : fontes.value))
+
+// A chave do grupo muda ao confirmar (de "proposta:..." para "norma:..."): o cartão é identificado pela primeira
+// citação, para o Vue atualizar o mesmo cartão em vez de trocar por outro.
+const idDoCartao = (fonte) => fonte.citacoes[0].id
+
 async function executar(fonte, acao, falha, sucesso) {
   ocupada.value = fonte.chave
   try {
@@ -63,8 +73,12 @@ async function executar(fonte, acao, falha, sucesso) {
   }
 }
 
-const aoConfirmar = (fonte, identidade) =>
-  executar(fonte, () => confirmarFonte(edital.value.id, identidade), 'Não foi possível confirmar', 'Norma na biblioteca')
+// O aviso diz o que aconteceu: com "só pendentes", a fonte que já tem texto na biblioteca sai da lista.
+function aoConfirmar(fonte, identidade) {
+  const nome = identidade.nome || 'A norma'
+  const sucesso = fonte.norma ? `${nome} ligada à norma da biblioteca` : `${nome} incluída na biblioteca`
+  return executar(fonte, () => confirmarFonte(edital.value.id, identidade), 'Não foi possível confirmar', sucesso)
+}
 const aoDesligar = (fonte) =>
   executar(fonte, () => desligarFonte(edital.value.id, fonte.citacoes.map((c) => c.id)), 'Não foi possível desfazer')
 const aoBuscarUrl = (fonte, norma) =>
@@ -106,10 +120,15 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
         identidade confirmada · <b>{{ resumo.comTexto }}</b> com texto. O texto enviado é dividido em artigos na hora. O
         coletor automático (etapa 2a-2) ainda não existe: por enquanto o texto vem por upload.
       </p>
-      <div class="grade">
+      <label class="filtro">
+        <Checkbox v-model="soPendentes" binary input-id="so-pendentes" />
+        <span>Só pendentes (identidade a confirmar ou sem texto)</span>
+      </label>
+      <p v-if="visiveis.length === 0" class="resumo">Nenhuma fonte pendente.</p>
+      <div class="lista">
         <FonteNorma
-          v-for="fonte in fontes"
-          :key="fonte.chave"
+          v-for="fonte in visiveis"
+          :key="idDoCartao(fonte)"
           :fonte="fonte"
           :ocupado="ocupada === fonte.chave"
           @confirmar="aoConfirmar(fonte, $event)"
@@ -129,15 +148,18 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
   margin: 0 0 1rem;
   color: var(--muted-foreground);
 }
-.grade {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: 1.25rem;
-  align-items: start;
+.filtro {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
 }
-@media (max-width: 520px) {
-  .grade {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* Uma coluna: o cartão que cresce ao ser confirmado só empurra os de baixo. */
+.lista {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
 }
 </style>
