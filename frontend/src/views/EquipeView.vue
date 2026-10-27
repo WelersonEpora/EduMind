@@ -121,7 +121,7 @@ async function aoAlterar({ membro, senhaRedefinida }) {
             </td>
             <td>
               {{ NOMES_DOS_PAPEIS[membro.papel] }}
-              <span v-if="membro.editais" class="email editais-do-aluno">
+              <span v-if="membro.editais" class="email editais-do-aluno" title="Atribua os editais na aba Alunos de cada edital">
                 {{ membro.editais.length === 0 ? 'nenhum edital' : `${membro.editais.length} ${membro.editais.length === 1 ? 'edital' : 'editais'}` }}
               </span>
             </td>

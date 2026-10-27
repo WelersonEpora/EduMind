@@ -16,6 +16,15 @@ export async function buscarAlunosDoEdital(editalId) {
   return (await http.get(`/api/v1/editais/${editalId}/alunos`)).data.data
 }
 
+// Atribuir e retirar (só o orientador): devolvem a lista nova de alunos do edital.
+export async function atribuirAlunosAoEdital(editalId, alunos) {
+  return (await http.post(`/api/v1/editais/${editalId}/alunos`, { alunos })).data.data
+}
+
+export async function retirarAlunoDoEdital(editalId, alunoId) {
+  return (await http.delete(`/api/v1/editais/${editalId}/alunos/${alunoId}`)).data.data
+}
+
 export async function buscarDesempenhoDoAluno(editalId, alunoId) {
   return (await http.get(`/api/v1/editais/${editalId}/alunos/${alunoId}`)).data.data
 }

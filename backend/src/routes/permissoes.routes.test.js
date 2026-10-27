@@ -27,7 +27,7 @@ async function subir(t) {
   await criarUsuario(sequelize, { email: "prof@teste.br", equipes: [{ id: equipe, papel: "professor" }] });
   const alunoId = await criarUsuario(sequelize, { email: "aluno@teste.br", equipes: [{ id: equipe, papel: "aluno" }] });
 
-  const { Edital, EditalPagina, Prova, Norma, EditalAluno, Membro } = sequelize.models;
+  const { Edital, EditalPagina, Prova, Norma, EditalAluno } = sequelize.models;
   const criarEdital = async (equipeId, nome) => {
     const id = randomUUID();
     await Edital.create({ id, equipe_id: equipeId, arquivo_nome: nome, arquivo_sha256: id.replace(/-/g, "").padEnd(64, "0"), arquivo_bytes: 1, total_paginas: 1 });
@@ -42,7 +42,6 @@ async function subir(t) {
   await Prova.create({ id: prova, equipe_id: equipe });
   const norma = randomUUID();
   await Norma.create({ id: norma, chave: "br:lei:9099:1995", tipo: "Lei", numero: "9.099", ano: "1995", nome: "Juizados" });
-  const { id: membroAluno } = await Membro.findOne({ where: { usuario_id: alunoId }, raw: true });
 
   const sessao = (email) => entrar(base, email, { equipeId: equipe });
   const chamar = (fetchComSessao, metodo, url, corpo) =>
@@ -51,7 +50,7 @@ async function subir(t) {
       headers: { "content-type": "application/json" },
       ...(corpo !== undefined && { body: JSON.stringify(corpo) })
     });
-  return { sequelize, sessao, chamar, atribuido, naoAtribuido, daOutraEquipe, prova, norma, membroAluno, alunoId };
+  return { sequelize, sessao, chamar, atribuido, naoAtribuido, daOutraEquipe, prova, norma, alunoId };
 }
 
 test("aluno: lê só os editais atribuídos e a biblioteca; o resto é 403", async (t) => {
@@ -122,30 +121,42 @@ test("orientador exclui prova", async (t) => {
   assert.equal((await chamar(await sessao("ori@teste.br"), "DELETE", `/provas/${prova}`)).status, 200);
 });
 
-test("atribuição: só o orientador, só para aluno, só editais da equipe; a lista substitui a anterior", async (t) => {
-  const { sessao, chamar, atribuido, naoAtribuido, daOutraEquipe, membroAluno, sequelize } = await subir(t);
+test("atribuição, na aba Alunos do edital: só o orientador, só alunos ativos da equipe, só editais da equipe", async (t) => {
+  const { sessao, chamar, atribuido, naoAtribuido, daOutraEquipe, alunoId, sequelize } = await subir(t);
   const orientador = await sessao("ori@teste.br");
   const professor = await sessao("prof@teste.br");
-  const url = `/equipe/membros/${membroAluno}/editais`;
+  const url = `/editais/${naoAtribuido}/alunos`;
 
-  assert.equal((await chamar(professor, "PUT", url, { editais: [naoAtribuido] })).status, 403);
-  assert.equal((await chamar(orientador, "PUT", url, { editais: [daOutraEquipe] })).status, 404);
-  assert.equal((await chamar(orientador, "PUT", url, { editais: "x" })).status, 400);
+  assert.equal((await chamar(professor, "POST", url, { alunos: [alunoId] })).status, 403);
+  assert.equal((await chamar(orientador, "POST", `/editais/${daOutraEquipe}/alunos`, { alunos: [alunoId] })).status, 404);
+  assert.equal((await chamar(orientador, "POST", url, { alunos: "x" })).status, 400);
+  assert.equal((await chamar(orientador, "POST", url, { alunos: [] })).status, 400);
+  // Quem não é aluno da equipe: 404.
+  const { usuario_id: professorId } = await sequelize.models.Membro.findOne({ where: { papel: "professor" }, raw: true });
+  assert.equal((await chamar(orientador, "POST", url, { alunos: [professorId] })).status, 404);
 
-  const resposta = await chamar(orientador, "PUT", url, { editais: [naoAtribuido] });
+  const resposta = await chamar(orientador, "POST", url, { alunos: [alunoId, alunoId] });
   assert.equal(resposta.status, 200);
-  assert.deepEqual((await resposta.json()).data.editais, [naoAtribuido]);
-  // O aluno passa a ver só o novo.
-  const aluno = await sessao("aluno@teste.br");
-  assert.deepEqual((await (await chamar(aluno, "GET", "/editais")).json()).data.map((e) => e.id), [naoAtribuido]);
-  assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}`)).status, 404);
+  assert.deepEqual((await resposta.json()).data.map((a) => a.id), [alunoId]);
+  // De novo: não duplica.
+  assert.deepEqual((await (await chamar(orientador, "POST", url, { alunos: [alunoId] })).json()).data.map((a) => a.id), [alunoId]);
 
-  // A lista da equipe traz os editais do aluno; professor e orientador não têm o campo.
+  // O aluno passa a ver os dois; a lista da equipe traz os editais dele, para consulta.
+  const aluno = await sessao("aluno@teste.br");
+  assert.deepEqual((await (await chamar(aluno, "GET", "/editais")).json()).data.map((e) => e.id).sort(), [atribuido, naoAtribuido].sort());
   const equipe = (await (await chamar(orientador, "GET", "/equipe")).json()).data;
-  assert.deepEqual(equipe.membros.find((m) => m.papel === "aluno").editais, [naoAtribuido]);
+  assert.deepEqual(equipe.membros.find((m) => m.papel === "aluno").editais.sort(), [atribuido, naoAtribuido].sort());
   assert.equal("editais" in equipe.membros.find((m) => m.papel === "professor"), false);
 
-  // Atribuir a quem não é aluno: 400.
-  const { id: membroProfessor } = await sequelize.models.Membro.findOne({ where: { papel: "professor" }, raw: true });
-  assert.equal((await chamar(orientador, "PUT", `/equipe/membros/${membroProfessor}/editais`, { editais: [] })).status, 400);
+  // Retirar: só o orientador; o aluno deixa de ver na hora.
+  assert.equal((await chamar(professor, "DELETE", `/editais/${atribuido}/alunos/${alunoId}`)).status, 403);
+  const retirada = await chamar(orientador, "DELETE", `/editais/${atribuido}/alunos/${alunoId}`);
+  assert.equal(retirada.status, 200);
+  assert.deepEqual((await retirada.json()).data, []);
+  assert.equal((await chamar(aluno, "GET", `/editais/${atribuido}`)).status, 404);
+  assert.equal((await chamar(orientador, "DELETE", `/editais/${atribuido}/alunos/${alunoId}`)).status, 404);
+
+  // Aluno desativado não recebe edital.
+  await sequelize.models.Membro.update({ ativo: false }, { where: { usuario_id: alunoId } });
+  assert.equal((await chamar(orientador, "POST", `/editais/${atribuido}/alunos`, { alunos: [alunoId] })).status, 404);
 });

@@ -20,7 +20,7 @@ const CAMPOS_DA_LISTA = [
 ];
 
 function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPaginas }) {
-  const { Edital, EditalPagina, EditalItem, ItemNorma, EditalAluno } = sequelize.models;
+  const { Edital, EditalPagina, EditalItem, ItemNorma, EditalAluno, Membro } = sequelize.models;
 
   // Os ids dos editais atribuídos ao aluno (etapa 4c): o aluno só vê esses.
   async function atribuidosAo(alunoId) {
@@ -138,7 +138,27 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
     return path.join(dirUploads, `${id}.pdf`);
   }
 
-  return { daEquipe, listar, buscar, criarAPartirDoPdf, pagina, conteudo, caminhoDoArquivo };
+  // Atribui o edital a alunos da equipe (etapa 4c; desde 2026-10-27 pela aba Alunos do edital). alunos: ids de
+  // usuário, todos alunos ativos da equipe. Quem já via o edital continua vendo; nada sai daqui.
+  async function atribuirAlunos(id, equipeId, { alunos } = {}) {
+    if (!Array.isArray(alunos) || alunos.length === 0 || !alunos.every(eUuid)) throw new AppError(400, "Indique os alunos.");
+    const ids = [...new Set(alunos)];
+    await sequelize.transaction(async (transaction) => {
+      const daEquipe = await Membro.count({ where: { equipe_id: equipeId, usuario_id: ids, papel: "aluno", ativo: true }, transaction });
+      if (daEquipe !== ids.length) throw new AppError(404, "Aluno não encontrado nesta equipe.");
+      const jaVeem = (await EditalAluno.findAll({ where: { edital_id: id, usuario_id: ids }, attributes: ["usuario_id"], raw: true, transaction })).map((a) => a.usuario_id);
+      const novos = ids.filter((u) => !jaVeem.includes(u));
+      await EditalAluno.bulkCreate(novos.map((u) => ({ edital_id: id, usuario_id: u })), { transaction });
+    });
+  }
+
+  // Tira o edital do aluno: ele deixa de ver na hora. As respostas dele no simulador ficam guardadas.
+  async function retirarAluno(id, alunoId) {
+    const removidos = eUuid(alunoId) ? await EditalAluno.destroy({ where: { edital_id: id, usuario_id: alunoId } }) : 0;
+    if (removidos === 0) throw new AppError(404, "Este aluno não vê este edital.");
+  }
+
+  return { daEquipe, listar, buscar, criarAPartirDoPdf, pagina, conteudo, caminhoDoArquivo, atribuirAlunos, retirarAluno };
 }
 
 module.exports = { criarEditalService };

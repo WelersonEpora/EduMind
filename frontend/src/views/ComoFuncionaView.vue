@@ -213,15 +213,18 @@ import PassoDoGuia from '../components/guia/PassoDoGuia.vue'
         <span class="fase__termina">O aluno só vê o edital depois do passo 7</span>
       </div>
       <ol class="passos">
-        <PassoDoGuia :numero="7" titulo="Atribua o edital aos alunos" :onde="['Membros', 'Editar', 'Editais que vê']" :quem="['orientador']" recorte-titulo="Editar Ana Souza · aluno">
-          <p>Inclua o aluno com o papel <strong>aluno</strong> e marque os editais que ele pode ver. É isso que publica o conteúdo para ele.</p>
+        <PassoDoGuia :numero="7" titulo="Atribua o edital aos alunos" :onde="['Edital', 'Alunos', 'Adicionar alunos']" :quem="['orientador']" recorte-titulo="Adicionar alunos · TJSP 2025">
+          <p>No edital, abra a aba <strong>Alunos</strong>, clique em <strong>Adicionar alunos</strong> e marque quem vai estudar por ele. É isso que publica o conteúdo para eles.</p>
           <ul>
+            <li>O aluno precisa estar na equipe antes: inclua-o em <strong>Membros</strong> com o papel <strong>aluno</strong>.</li>
+            <li>Para a turma toda, use <strong>Marcar todos</strong>.</li>
             <li>Libere quando a cobertura estiver pronta: o aluno vê o edital como ele está naquele momento.</li>
-            <li>Desmarcar o edital tira o acesso na hora.</li>
+            <li>Tirar o aluno da lista acaba o acesso na hora; o que ele fez no simulador fica guardado.</li>
           </ul>
           <template #recorte>
-            <div class="caixa-marcar"><span class="caixa-marcar__caixa caixa-marcar__caixa--marcada"><i class="pi pi-check"></i></span>TJSP · Escrevente Técnico 2025</div>
-            <div class="caixa-marcar"><span class="caixa-marcar__caixa"></span>TRF3 · Técnico Judiciário 2024</div>
+            <div class="caixa-marcar"><span class="caixa-marcar__caixa caixa-marcar__caixa--marcada"><i class="pi pi-check"></i></span><b>Marcar todos</b></div>
+            <div class="caixa-marcar"><span class="caixa-marcar__caixa caixa-marcar__caixa--marcada"><i class="pi pi-check"></i></span>Ana Souza</div>
+            <div class="caixa-marcar"><span class="caixa-marcar__caixa caixa-marcar__caixa--marcada"><i class="pi pi-check"></i></span>Bruno Lima</div>
           </template>
         </PassoDoGuia>
 

@@ -167,8 +167,20 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
     res.json({ data: await desempenhoService.alunos(req.params.id) });
   });
 
+  // { alunos: [ids de usuário] }: atribui o edital a esses alunos da equipe; só o orientador. Devolve a lista nova.
+  router.post("/:id/alunos", exigirOrientador, async (req, res) => {
+    await editalService.atribuirAlunos(req.params.id, req.equipe.id, req.body || {});
+    res.json({ data: await desempenhoService.alunos(req.params.id) });
+  });
+
   router.get("/:id/alunos/:alunoId", async (req, res) => {
     res.json({ data: await desempenhoService.doAluno(req.params.id, req.params.alunoId) });
+  });
+
+  // Tira o edital do aluno; só o orientador. Devolve a lista nova.
+  router.delete("/:id/alunos/:alunoId", exigirOrientador, async (req, res) => {
+    await editalService.retirarAluno(req.params.id, req.params.alunoId);
+    res.json({ data: await desempenhoService.alunos(req.params.id) });
   });
 
   router.get("/:id/conteudo", async (req, res) => {

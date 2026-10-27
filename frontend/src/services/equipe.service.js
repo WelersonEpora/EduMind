@@ -28,8 +28,3 @@ export async function listarEquipesDaPlataforma() {
 export async function criarEquipeNaPlataforma(dados) {
   return (await http.post('/api/v1/admin/equipes', dados)).data
 }
-
-// Os editais da equipe que o aluno vê (etapa 4c). A lista substitui a anterior.
-export async function atribuirEditais(membroId, editais) {
-  return (await http.put(`/api/v1/equipe/membros/${membroId}/editais`, { editais })).data.data
-}
