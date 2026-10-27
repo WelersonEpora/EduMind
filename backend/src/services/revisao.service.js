@@ -11,7 +11,8 @@ const { artigosNoEdital } = require("./arvore-do-edital");
 // em edital.metadados, onde cada item revisável ganha status, status_em e editado).
 //
 // Decisões do orientador (2026-10-22): edita-se texto e citação de artigos, sem criar, apagar ou mover itens; a
-// aprovação em lote é por disciplina e só pega os itens verificados e sem pendência na citação de normas.
+// aprovação em lote é por disciplina e só pega os itens verificados e sem pendência na citação de normas. Desde
+// 2026-10-27 há também o lote do edital inteiro, com o mesmo critério.
 
 const STATUS = ["rascunho", "aprovado", "rejeitado"];
 
@@ -88,6 +89,15 @@ function aplicar(item, alteracoes, editaveis, agora) {
       item.editado = true;
     }
   }
+}
+
+// Pode entrar na aprovação em lote: trecho verificado e sem pendência na citação das normas (trecho dos artigos não
+// achado no edital ou partes que não são artigos).
+function semPendencia(item) {
+  return (
+    item.verificado &&
+    item.normas.every((n) => (!n.artigos_texto || n.artigos_texto_verificado) && !(n.artigos?.avisos?.length > 0))
+  );
 }
 
 function criarRevisaoService({ sequelize, agora = () => new Date() }) {
@@ -206,10 +216,11 @@ function criarRevisaoService({ sequelize, agora = () => new Date() }) {
     };
     juntar(itens.find((i) => i.id === disciplina.id));
 
-    const semPendencia = (item) =>
-      item.verificado &&
-      item.normas.every((n) => (!n.artigos_texto || n.artigos_texto_verificado) && !(n.artigos?.avisos?.length > 0));
-    const emRascunho = daDisciplina.filter((item) => item.status === "rascunho");
+    return aprovarItensSemPendencia(daDisciplina);
+  }
+
+  async function aprovarItensSemPendencia(itens) {
+    const emRascunho = itens.filter((item) => item.status === "rascunho");
     const aprovar = emRascunho.filter(semPendencia).map((item) => item.id);
     if (aprovar.length > 0) {
       await EditalItem.update({ status: "aprovado", status_em: agora() }, { where: { id: aprovar } });
@@ -217,7 +228,36 @@ function criarRevisaoService({ sequelize, agora = () => new Date() }) {
     return { aprovados: aprovar.length, pendentes: emRascunho.length - aprovar.length };
   }
 
-  return { revisarMetadado, revisarItem, revisarNorma, aprovarVerificados };
+  // Aprova de uma vez o edital inteiro (decisão do orientador em 2026-10-27: por disciplina ainda eram cliques demais),
+  // com o mesmo critério do lote da disciplina: os itens da árvore e dos metadados em rascunho, com o trecho verificado
+  // e sem pendência. A data de publicação fora do formato AAAA-MM-DD também fica para conferir.
+  async function aprovarTudoVerificado(editalId) {
+    await editalExtraido(editalId);
+    const itens = await EditalItem.findAll({ where: { edital_id: editalId }, include: [{ model: ItemNorma, as: "normas" }] });
+    const arvore = await aprovarItensSemPendencia(itens);
+
+    const metadados = await sequelize.transaction(async (transaction) => {
+      const edital = await editalExtraido(editalId, { transaction, lock: transaction.LOCK.UPDATE });
+      const copia = structuredClone(edital.metadados);
+      const emRascunho = itensDosMetadados(copia).filter((i) => !i.item.status || i.item.status === "rascunho");
+      const aprovar = emRascunho.filter(
+        (i) => i.item.verificado && (i.caminho !== "campos.data_publicacao" || dataValida(i.item.valor))
+      );
+      for (const { item } of aprovar) {
+        item.status = "aprovado";
+        item.status_em = agora().toISOString();
+      }
+      if (aprovar.length > 0) await edital.update({ metadados: copia }, { transaction });
+      return { aprovados: aprovar.length, pendentes: emRascunho.length - aprovar.length };
+    });
+
+    return {
+      aprovados: arvore.aprovados + metadados.aprovados,
+      pendentes: arvore.pendentes + metadados.pendentes
+    };
+  }
+
+  return { revisarMetadado, revisarItem, revisarNorma, aprovarVerificados, aprovarTudoVerificado };
 }
 
 // Quantos itens já passaram pela revisão (aprovados, rejeitados ou editados), na árvore e nos metadados. A extração

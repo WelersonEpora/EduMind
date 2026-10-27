@@ -60,6 +60,12 @@ export async function aprovarVerificados(id, disciplinaId) {
   return resposta.data.data
 }
 
+// O edital inteiro: árvore e dados do concurso, com o mesmo critério do lote da disciplina.
+export async function aprovarTudoVerificado(id) {
+  const resposta = await http.post(`/api/v1/editais/${id}/aprovar-verificados`)
+  return resposta.data.data
+}
+
 // Fontes (etapa 2a-1): normas citadas nos itens aprovados e a biblioteca de normas.
 export async function buscarFontes(id) {
   const resposta = await http.get(`/api/v1/editais/${id}/fontes`)

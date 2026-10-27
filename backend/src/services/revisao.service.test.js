@@ -162,6 +162,31 @@ test("aprovar verificados da disciplina deixa de fora o não verificado e as nor
   await assert.rejects(service.aprovarVerificados(edital.id, porTexto("Direito").id), { status: 400, message: /por disciplina/ });
 });
 
+test("aprovar verificados do edital inteiro pega a árvore e os metadados, com o mesmo critério", async (t) => {
+  const { edital, editalService, service, porTexto } = await montar(t);
+  await service.revisarItem(edital.id, porTexto("Crimes").id, { status: "rejeitado" });
+  await service.revisarMetadado(edital.id, { caminho: "campos.banca", status: "rejeitado" });
+
+  // Árvore: 3 aprovados e 2 pendentes. Metadados: data, bloco e disciplina aprovados.
+  assert.deepEqual(await service.aprovarTudoVerificado(edital.id), { aprovados: 6, pendentes: 2 });
+  const status = Object.fromEntries((await editalService.conteudo(edital.id)).map((i) => [i.texto.slice(0, 14), i.status]));
+  assert.deepEqual(status, {
+    Direito: "aprovado",
+    "DIREITO PENAL": "aprovado",
+    "Código Penal -": "aprovado",
+    "Constituição F": "rascunho",
+    "Lei n.º 9.099 ": "rascunho",
+    "Crimes em gera": "rejeitado"
+  });
+  const { metadados } = await editalService.buscar(edital.id);
+  assert.deepEqual(
+    [metadados.campos.banca.status, metadados.campos.data_publicacao.status, metadados.blocos[0].status, metadados.blocos[0].disciplinas[0].status],
+    ["rejeitado", "aprovado", "aprovado", "aprovado"]
+  );
+  // De novo: nada mais a aprovar.
+  assert.deepEqual(await service.aprovarTudoVerificado(edital.id), { aprovados: 0, pendentes: 2 });
+});
+
 test("revisa os metadados: status, edição, data validada e colunas do edital", async (t) => {
   const { edital, editalService, service } = await montar(t);
 

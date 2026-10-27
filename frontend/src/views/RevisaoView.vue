@@ -3,12 +3,14 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useEditais } from '../composables/useEditais'
+import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import LeitorDePaginas from '../components/edital/LeitorDePaginas.vue'
 import MetadadosRevisaveis from '../components/revisao/MetadadosRevisaveis.vue'
 import ItemRevisavel from '../components/revisao/ItemRevisavel.vue'
 import {
+  aprovarTudoVerificado,
   aprovarVerificados,
   buscarConteudo,
   buscarEdital,
@@ -126,19 +128,34 @@ async function aoRevisarMetadado(caminho, alteracoes) {
   if (metadados) edital.value = { ...edital.value, metadados }
 }
 
+function avisarAprovados(titulo, resultado) {
+  const pendentes = resultado.pendentes
+    ? `${resultado.pendentes} ${resultado.pendentes === 1 ? 'ficou' : 'ficaram'} para conferir um a um.`
+    : undefined
+  toast.add({
+    severity: 'success',
+    summary: `${titulo}: ${resultado.aprovados} ${resultado.aprovados === 1 ? 'item aprovado' : 'itens aprovados'}`,
+    detail: pendentes,
+    life: 5000
+  })
+}
+
 async function aoAprovarVerificados(disciplina) {
   const resultado = await executar(() => aprovarVerificados(edital.value.id, disciplina.id), 'Não foi possível aprovar')
   if (!resultado) return
   conteudo.value = await buscarConteudo(edital.value.id)
-  const pendentes = resultado.pendentes
-    ? ` ${resultado.pendentes} ${resultado.pendentes === 1 ? 'ficou' : 'ficaram'} para conferir um a um.`
-    : ''
-  toast.add({
-    severity: 'success',
-    summary: `${disciplina.texto}: ${resultado.aprovados} ${resultado.aprovados === 1 ? 'item aprovado' : 'itens aprovados'}`,
-    detail: pendentes.trim() || undefined,
-    life: 5000
-  })
+  avisarAprovados(disciplina.texto, resultado)
+}
+
+// O edital inteiro de uma vez: o que não está verificado ou tem pendência nas normas continua em rascunho.
+async function aoAprovarTudoVerificado() {
+  const resultado = await executar(() => aprovarTudoVerificado(edital.value.id), 'Não foi possível aprovar')
+  if (!resultado) return
+  const id = edital.value.id
+  ;[edital.value, conteudo.value] = await Promise.all([buscarEdital(id), buscarConteudo(id)])
+  avisarAprovados('Edital', resultado)
+  // Com o que sobrou à vista, fica mais fácil conferir um a um.
+  if (resultado.pendentes) soPendentes.value = true
 }
 </script>
 
@@ -178,6 +195,19 @@ async function aoAprovarVerificados(disciplina) {
               <span><i class="ponto" /> {{ progresso.pendentes }} pendentes</span>
               <span class="mono">de {{ progresso.total }}</span>
             </p>
+            <div v-if="progresso.pendentes" class="lote">
+              <Button
+                label="Aprovar todos os verificados"
+                icon="pi pi-check-circle"
+                size="small"
+                :disabled="ocupado"
+                @click="aoAprovarTudoVerificado"
+              />
+              <span>
+                Aprova de uma vez os itens pendentes com o trecho conferido na página e sem pendência nas normas. O resto
+                fica para conferir um a um.
+              </span>
+            </div>
           </div>
         </section>
 
@@ -275,6 +305,17 @@ async function aoAprovarVerificados(disciplina) {
   gap: 1rem;
   font-size: 0.85rem;
   color: var(--muted-foreground);
+}
+.lote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+.lote span {
+  flex: 1 1 16rem;
 }
 .ponto {
   display: inline-block;
