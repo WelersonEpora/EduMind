@@ -17,6 +17,8 @@ const { contarRevisados } = require("./revisao.service");
 //
 // As duas chamadas rodam em paralelo e só com a chave paga (decisão do orientador em 2026-10-22: a gratuita, sob
 // "alta demanda", segurava cada chamada 240 s antes de a paga entrar, e a extração do TJSP levava mais de 10 min).
+// E com raciocínio "low" (decisão do orientador em 2026-10-27: com o padrão do modelo, a árvore de um edital de 35
+// páginas passou dos 420 s da janela).
 //
 // As chamadas ao Gemini podem levar minutos: `iniciar` marca o edital como "extraindo" e devolve na hora; a extração
 // segue em segundo plano e grava "extraido" ou "erro_extracao". A tela acompanha pelo status do edital. O resultado
@@ -137,7 +139,7 @@ function criarExtracaoService({ sequelize, gerarJson = gemini.gerarJson, agora =
   // Uma chamada ao Gemini com um dos prompts: a resposta e o registro da chamada (gravado em metadados.extracao).
   async function chamarIa(arquivoDoPrompt, textoDoEdital, responseSchema) {
     const { versao, instrucaoDoSistema, prompt } = carregarPrompt(arquivoDoPrompt, { texto_do_edital: textoDoEdital });
-    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema, somentePaga: true });
+    const resposta = await gerarJson({ systemInstruction: instrucaoDoSistema, prompt, responseSchema, somentePaga: true, raciocinio: "low" });
     return { texto: resposta.texto, registro: { prompt: versao, modelo: resposta.modelo, chave: resposta.chave, tokens: resposta.tokens } };
   }
 

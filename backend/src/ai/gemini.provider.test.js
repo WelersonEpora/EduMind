@@ -45,6 +45,17 @@ test("devolve o texto da resposta, sem as partes de raciocínio, e pede JSON no 
   assert.equal(corpo.generationConfig.responseMimeType, "application/json");
   assert.deepEqual(corpo.generationConfig.responseSchema, { type: "OBJECT" });
   assert.equal(corpo.systemInstruction.parts[0].text, "sistema");
+  assert.equal(corpo.generationConfig.thinkingConfig, undefined);
+});
+
+test("raciocinio vira o thinkingLevel da chamada", async () => {
+  let corpo;
+  const fetch = async (url, opcoes) => {
+    corpo = JSON.parse(opcoes.body);
+    return respostaOk("{}");
+  };
+  await gerarJson({ ...PEDIDO, raciocinio: "low" }, deps(fetch));
+  assert.deepEqual(corpo.generationConfig.thinkingConfig, { thinkingLevel: "low" });
 });
 
 test("cota esgotada (429) na gratuita passa para a paga", async () => {
