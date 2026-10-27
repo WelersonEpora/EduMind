@@ -265,6 +265,16 @@ function criarFontesService({
     return resumoDaNorma(norma);
   }
 
+  // Corrige o nome (decisão de 2026-10-27). O nome é texto livre, fora da chave: versões, artigos e citações não mudam.
+  // A biblioteca é de todos, então o nome novo vale para todas as equipes.
+  async function renomear(normaId, { nome }) {
+    const norma = await normaExistente(normaId);
+    const texto = typeof nome === "string" ? nome.trim() : "";
+    if (!texto) throw new AppError(400, "O nome da norma não pode ficar vazio.");
+    await norma.update({ nome: texto });
+    return resumoDaNorma(norma);
+  }
+
   async function definirUrl(normaId, { url }) {
     const norma = await normaExistente(normaId);
     if (url === null || url === "") {
@@ -388,6 +398,7 @@ function criarFontesService({
     incluir,
     desligar,
     buscarUrl,
+    renomear,
     definirUrl,
     enviarVersao,
     processarVersao,

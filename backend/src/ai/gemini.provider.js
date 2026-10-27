@@ -1,5 +1,6 @@
 "use strict";
 
+const { Agent, fetch: fetchUndici } = require("undici");
 const env = require("../config/env");
 
 // O Gemini pela API REST, sem SDK, no padrão do FinMind (src/ai/gemini-search.provider.js de lá), sem a busca na
@@ -12,6 +13,10 @@ const env = require("../config/env");
 const URL_BASE = "https://generativelanguage.googleapis.com/v1beta";
 // Tentativas com a MESMA chave num 5xx (sobrecarga momentânea), com estas esperas entre elas.
 const ESPERAS_ERRO_TRANSITORIO_MS = [2000, 5000];
+// O fetch do Node desiste sozinho após 300 s sem os cabeçalhos da resposta ("fetch failed"), antes da janela de
+// GEMINI_TIMEOUT_MS: a extração de um edital grande passa disso. Sem esses limites aqui, quem corta é só o
+// AbortSignal com a janela.
+const SEM_LIMITE_DO_UNDICI = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
 
 class ErroDoGemini extends Error {
   constructor(message, { status = null, semResposta = false } = {}) {
@@ -45,13 +50,16 @@ async function chamar({ apiKey, corpo, timeoutMs }, { config, fetchFn }) {
       method: "POST",
       signal: AbortSignal.timeout(timeoutMs),
       headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-      body: corpo
+      body: corpo,
+      dispatcher: SEM_LIMITE_DO_UNDICI
     });
   } catch (erro) {
     if (erro.name === "TimeoutError") {
       throw new ErroDoGemini(`O Gemini não respondeu em ${Math.round(config.timeoutMs / 1000)} s.`, { semResposta: true });
     }
-    throw new ErroDoGemini(`Falha de rede ao chamar o Gemini: ${erro.message}`);
+    // "fetch failed" sozinho não diz nada: a causa (ECONNRESET, ENOTFOUND...) vem em erro.cause.
+    const causa = erro.cause?.code || erro.cause?.message;
+    throw new ErroDoGemini(`Falha de rede ao chamar o Gemini: ${erro.message}${causa ? ` (${causa})` : ""}`);
   }
   if (!resposta.ok) {
     const texto = await resposta.text().catch(() => "");
@@ -110,7 +118,7 @@ function descreverTentativas(tentativas) {
 
 async function chamarComChaves(corpo, deps, somentePaga) {
   const config = deps.gemini || env.gemini;
-  const contexto = { config, fetchFn: deps.fetch || fetch, esperar: deps.esperar || esperarPadrao, agora: deps.agora || Date.now };
+  const contexto = { config, fetchFn: deps.fetch || fetchUndici, esperar: deps.esperar || esperarPadrao, agora: deps.agora || Date.now };
   const chaves = chavesEmOrdem(config, somentePaga);
   if (chaves.length === 0) {
     throw new ErroDoGemini("GEMINI_API_KEY_FREE e GEMINI_API_KEY não estão no .env: a extração com IA está desligada.");

@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
@@ -13,6 +14,7 @@ import {
   definirUrlDaNorma,
   enviarVersaoDaNorma,
   processarVersaoDaNorma,
+  renomearNorma,
   urlDoArquivoDaVersao
 } from '../services/editais.service'
 import FonteDaNorma from '../components/fontes/FonteDaNorma.vue'
@@ -111,6 +113,27 @@ const aoEnviarVersao = (n, arquivo) =>
     'Texto recebido'
   )
 
+// Correção do nome, no próprio título (orientador e professor). Só o nome: a chave (tipo, número, ano) não muda.
+const nomeEmEdicao = ref(null)
+const salvandoNome = ref(false)
+async function salvarNome() {
+  const nome = nomeEmEdicao.value.trim()
+  if (!nome || nome === norma.value.nome) {
+    nomeEmEdicao.value = null
+    return
+  }
+  salvandoNome.value = true
+  try {
+    norma.value.nome = (await renomearNorma(norma.value.id, nome)).nome
+    nomeEmEdicao.value = null
+    toast.add({ severity: 'success', summary: 'Nome corrigido', detail: 'Vale para todas as equipes.', life: 4000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não corrigiu o nome', detail: e.message, life: 6000 })
+  } finally {
+    salvandoNome.value = false
+  }
+}
+
 function escolherVersao(id) {
   router.replace({ query: { ...route.query, versao: id } })
 }
@@ -193,7 +216,25 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
     <router-link :to="{ name: 'normas' }" class="voltar-topo"><i class="pi pi-arrow-left"></i>Biblioteca de normas</router-link>
     <div class="pagina-cabecalho">
       <div>
-        <h1>{{ norma.nome }}</h1>
+        <form v-if="nomeEmEdicao !== null" class="renomear" @submit.prevent="salvarNome">
+          <InputText v-model="nomeEmEdicao" aria-label="Nome da norma" autofocus @keydown.esc="nomeEmEdicao = null" />
+          <Button type="submit" icon="pi pi-check" aria-label="Salvar o nome" :loading="salvandoNome" />
+          <Button icon="pi pi-times" text severity="secondary" aria-label="Cancelar" :disabled="salvandoNome" @click="nomeEmEdicao = null" />
+        </form>
+        <h1 v-else>
+          {{ norma.nome }}
+          <Button
+            v-if="podeEditar"
+            icon="pi pi-pencil"
+            text
+            rounded
+            size="small"
+            severity="secondary"
+            aria-label="Corrigir o nome"
+            title="Corrigir o nome (vale para todas as equipes)"
+            @click="nomeEmEdicao = norma.nome"
+          />
+        </h1>
         <p class="mono">{{ norma.chave }}</p>
         <p v-if="norma.editais.length && !eAluno">
           Citada em:
@@ -290,6 +331,15 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
 .pagina-cabecalho p {
   margin: 0.2rem 0 0;
   overflow-wrap: anywhere;
+}
+.renomear {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.renomear .p-inputtext {
+  width: min(560px, 100%);
+  font-size: 1.1rem;
 }
 .fonte {
   margin-bottom: 1.25rem;

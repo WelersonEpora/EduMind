@@ -187,3 +187,22 @@ test("incluir norma na biblioteca: orientador e professor podem, aluno não", as
   assert.equal(deNovo.status, 200);
   assert.equal((await deNovo.json()).jaExistia, true);
 });
+
+test("corrigir o nome da norma: orientador e professor podem, aluno não; a chave não muda", async (t) => {
+  const { sequelize, base } = await subir(t);
+  const equipe = await criarEquipe(sequelize);
+  await criarUsuario(sequelize, { email: "prof@teste.br", equipes: [{ id: equipe, papel: "professor" }] });
+  await criarUsuario(sequelize, { email: "aluno@teste.br", equipes: [{ id: equipe, papel: "aluno" }] });
+  const professor = await entrar(base, "prof@teste.br", { equipeId: equipe });
+  const json = (metodo, corpo) => ({ method: metodo, headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) });
+  const criada = await professor(`${base}/api/v1/normas`, json("POST", { jurisdicao: "BR", tipo: "Lei", numero: "9.099", ano: "1995", nome: "Juizados Espciais" }));
+  const { id, chave } = (await criada.json()).data;
+  const renomear = (fetchComSessao, nome) => fetchComSessao(`${base}/api/v1/normas/${id}/nome`, json("PUT", { nome }));
+
+  assert.equal((await renomear(await entrar(base, "aluno@teste.br", { equipeId: equipe }), "Outro")).status, 403);
+  assert.equal((await renomear(professor, "  ")).status, 400);
+  const renomeada = await renomear(professor, " Juizados Especiais ");
+  assert.equal(renomeada.status, 200);
+  const { data } = await renomeada.json();
+  assert.deepEqual([data.nome, data.chave], ["Juizados Especiais", chave]);
+});

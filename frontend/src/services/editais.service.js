@@ -84,6 +84,12 @@ export async function buscarUrlDaNorma(normaId) {
   return resposta.data.data
 }
 
+// Corrige o nome da norma (vale para todas as equipes: a biblioteca é de todos).
+export async function renomearNorma(normaId, nome) {
+  const resposta = await http.put(`/api/v1/normas/${normaId}/nome`, { nome })
+  return resposta.data.data
+}
+
 export async function definirUrlDaNorma(normaId, url) {
   const resposta = await http.patch(`/api/v1/normas/${normaId}`, { url })
   return resposta.data.data

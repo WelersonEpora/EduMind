@@ -38,6 +38,11 @@ function criarRotasDeNormas(fontesService) {
     res.json({ data: await fontesService.buscarUrl(req.params.id) });
   });
 
+  // { nome }: corrige o nome da norma (vale para todas as equipes).
+  router.put("/:id/nome", exigirOrientadorOuProfessor, async (req, res) => {
+    res.json({ data: await fontesService.renomear(req.params.id, req.body || {}) });
+  });
+
   router.patch("/:id", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await fontesService.definirUrl(req.params.id, req.body || {}) });
   });
