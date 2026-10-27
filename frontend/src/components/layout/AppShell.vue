@@ -120,16 +120,6 @@ async function sairDoSistema() {
       >
         <i class="pi pi-book"></i><span class="shell__rotulo">Biblioteca de normas</span>
       </router-link>
-      <router-link
-        v-if="!eAluno"
-        to="/como-funciona"
-        class="shell__item"
-        :class="{ 'shell__item--ativo': route.name === 'como-funciona' }"
-        title="Como funciona"
-        @click="fecharGaveta"
-      >
-        <i class="pi pi-compass"></i><span class="shell__rotulo">Como funciona</span>
-      </router-link>
 
       <!-- O aluno não vê os membros da equipe (etapa 4c); o grupo só fica para o administrador, se for o caso. -->
       <div v-if="!eAluno || usuario?.admin" class="shell__grupo"><span class="shell__rotulo">Equipe</span></div>
@@ -161,7 +151,22 @@ async function sairDoSistema() {
         </span>
       </template>
 
-      <div class="shell__rodape"><span class="shell__rotulo">EduMind v{{ version }}</span></div>
+      <!-- Embaixo do menu: o grupo Sistema (o guia do orientador) e a versão. -->
+      <div class="shell__fim">
+        <template v-if="!eAluno">
+          <div class="shell__grupo"><span class="shell__rotulo">Sistema</span></div>
+          <router-link
+            to="/como-funciona"
+            class="shell__item"
+            :class="{ 'shell__item--ativo': route.name === 'como-funciona' }"
+            title="Como funciona"
+            @click="fecharGaveta"
+          >
+            <i class="pi pi-compass"></i><span class="shell__rotulo">Como funciona</span>
+          </router-link>
+        </template>
+        <div class="shell__rodape"><span class="shell__rotulo">EduMind v{{ version }}</span></div>
+      </div>
     </nav>
 
     <main class="shell__conteudo">
@@ -339,8 +344,14 @@ async function sairDoSistema() {
   color: var(--muted-foreground);
   font-weight: 600;
 }
-.shell__rodape {
+.shell__fim {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shell__rodape {
+  margin-top: 0.7rem;
   padding: 0.6rem 0.75rem 0;
   border-top: 1px solid var(--border);
   font-size: 0.75rem;
