@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarExtracaoService } = require("./extracao.service");
@@ -231,4 +232,57 @@ test("estrutura: o código acha os artigos; só entram depois da conferência, q
   await assert.rejects(service.conferirEstrutura(edital.id, citacao.id, { conferida: true }), { status: 409 });
   await revisao.revisarNorma(edital.id, citacao.id, { artigos_texto: "artigos 1 a 3" });
   await assert.rejects(service.conferirEstrutura(edital.id, citacao.id, { conferida: true }), { status: 400 });
+});
+
+test("incidência: principal e relacionado separados, só as provas do edital, sem descartadas nem não jurídicas", async (t) => {
+  const { equipeId, sequelize, edital, fontes, service } = await montar(t);
+  const cp = await confirmar(fontes, edital, "br:decreto-lei:2848:1940", {
+    jurisdicao: "BR",
+    tipo: "Decreto-Lei",
+    numero: "2.848",
+    ano: "1940",
+    nome: "Código Penal"
+  });
+  const html = "<p>Art. 293. Um.</p><p>Art. 294. Dois.</p><p>Art. 295. Três.</p><p>Art. 296. Fora do edital.</p>";
+  await fontes.enviarVersao(cp.id, { buffer: Buffer.from(html), nomeArquivo: "cp.html" });
+
+  const { Prova, ProvaQuestao, EditalProva, QuestaoArtigo } = sequelize.models;
+  const alternativas = ["A", "B", "C", "D", "E"].map((letra) => ({ letra, texto: letra }));
+  const prova = async (ano, doEdital, classificacao_status = "classificada") => {
+    const id = randomUUID();
+    await Prova.create({ id, equipe_id: equipeId, banca: "VUNESP", ano, classificacao_status });
+    if (doEdital) await EditalProva.create({ edital_id: edital.id, prova_id: id });
+    return id;
+  };
+  let numero = 0;
+  const questao = async (provaId, referencias, extras = {}) => {
+    const id = randomUUID();
+    numero += 1;
+    await ProvaQuestao.create({ id, prova_id: provaId, numero, enunciado: "?", alternativas, status: "valida", classificacao_status: "classificada", ...extras });
+    for (const [artigo, papel] of referencias) await QuestaoArtigo.create({ id: randomUUID(), questao_id: id, norma_id: cp.id, artigo, papel });
+  };
+  const p2021 = await prova(2021, true);
+  const p2023 = await prova(2023, true);
+  const deOutroEdital = await prova(2024, false);
+  await prova(2025, true, null);
+
+  await questao(p2021, [["293", "principal"], ["294", "relacionado"]]);
+  await questao(p2021, [["293", "principal"]], { classificacao_status: "a_revisar" });
+  await questao(p2023, [["293", "relacionado"], ["296", "principal"]]);
+  await questao(p2023, [["294", "principal"]], { status: "descartada" });
+  await questao(p2023, [["294", "principal"]], { classificacao_status: "nao_juridica" });
+  await questao(deOutroEdital, [["293", "principal"]]);
+
+  const { provas, resumo, disciplinas } = await service.cobertura(edital.id);
+  assert.deepEqual(provas.map((p) => [p.ano, p.classificacao_status]), [[2025, null], [2023, "classificada"], [2021, "classificada"]]);
+  const artigos = disciplinas[0].itens[0].citacoes[0].artigos;
+  assert.deepEqual(
+    artigos.map((a) => [a.numero, a.incidencia]),
+    [
+      ["293", { principal: 2, relacionado: 1, provas: 2, ultimo_ano: 2023 }],
+      ["294", { principal: 0, relacionado: 1, provas: 1, ultimo_ano: 2021 }],
+      ["295", { principal: 0, relacionado: 0, provas: 0, ultimo_ano: null }]
+    ]
+  );
+  assert.deepEqual([resumo.artigos_com_questoes, resumo.questoes], [2, 3]);
 });

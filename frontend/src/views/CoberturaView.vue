@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Button from 'primevue/button'
+import Column from 'primevue/column'
+import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import SelectButton from 'primevue/selectbutton'
@@ -73,6 +75,49 @@ const disciplinas = computed(() => {
     .filter((disciplina) => disciplina.itens.length > 0)
 })
 
+// Incidência (etapa 6a): os artigos pedidos em ordem de cobrança nas provas escolhidas para o edital. Principal e
+// relacionado contam separados; um artigo pedido em mais de um item aparece uma vez, com os itens juntos.
+const MODOS = [
+  { valor: 'lei', rotulo: 'Na ordem do edital' },
+  { valor: 'incidencia', rotulo: 'Mais cobrados' }
+]
+const modo = ref('lei')
+
+const maisCobrados = computed(() => {
+  if (!cobertura.value) return []
+  const porArtigo = new Map()
+  for (const disciplina of cobertura.value.disciplinas) {
+    for (const item of disciplina.itens) {
+      for (const citacao of item.citacoes) {
+        if (!citacao.norma) continue
+        const artigos = [...citacao.artigos, ...(citacao.estrutura?.partes || []).flatMap((p) => p.artigos)]
+        for (const artigo of artigos) {
+          if (!artigo.questoes?.length) continue
+          const chave = `${citacao.norma.id}|${artigo.numero}`
+          if (!porArtigo.has(chave)) porArtigo.set(chave, { chave, citacao, artigo, ...artigo.incidencia, itens: [] })
+          const linha = porArtigo.get(chave)
+          if (!linha.itens.includes(item.texto)) linha.itens.push(item.texto)
+        }
+      }
+    }
+  }
+  const ordem = (a, b) => b.principal - a.principal || b.relacionado - a.relacionado || b.provas - a.provas || (b.ultimo_ano ?? 0) - (a.ultimo_ano ?? 0)
+  return [...porArtigo.values()].sort(ordem)
+})
+
+// Base da contagem: quantas provas escolhidas para o edital entraram (as não classificadas ainda não contam).
+const provasContadas = computed(() => (cobertura.value?.provas || []).filter((p) => p.classificacao_status === 'classificada'))
+const provasSemClassificacao = computed(() => (cobertura.value?.provas || []).filter((p) => p.classificacao_status !== 'classificada'))
+const nomeDaProva = (p) => [p.banca, p.ano].filter(Boolean).join(' ') || 'prova sem dados'
+
+function dicaDaIncidencia(artigo) {
+  const i = artigo.incidencia
+  if (!i) return ''
+  const partes = [`principal em ${i.principal} ${i.principal === 1 ? 'questão' : 'questões'}`]
+  if (i.relacionado) partes.push(`relacionado em ${i.relacionado}`)
+  return partes.join(', ')
+}
+
 const resumo = computed(() => cobertura.value?.resumo)
 const pendencias = computed(() => {
   const r = resumo.value
@@ -113,6 +158,7 @@ function contagem(citacao) {
 
 function dicaDoArtigo(artigo) {
   const dicas = [{ encontrado: 'encontrado', revogado: 'revogado', faltando: 'não está no texto da norma' }[artigo.situacao]]
+  if (artigo.questoes?.length) dicas.push(`cobrado: ${dicaDaIncidencia(artigo)}`)
   if (artigo.vigencia === 'depois') dicas.push('alterado depois do edital')
   if (artigo.vigencia === 'talvez') dicas.push('alterado no ano do edital (talvez depois)')
   if (artigo.origem === 'letra_no_intervalo') dicas.push('artigo com letra que veio do texto da norma, não do edital')
@@ -202,8 +248,57 @@ const janelaVisivel = computed({
           <router-link :to="{ name: 'fontes', params: { id: edital.id } }">Ir para as Fontes</router-link>
         </Message>
 
-        <SelectButton v-model="filtro" :options="FILTROS" option-label="rotulo" option-value="valor" :allow-empty="false" class="filtro" />
+        <p class="base">
+          <template v-if="provasContadas.length">
+            Questões contadas em {{ provasContadas.length }} {{ provasContadas.length === 1 ? 'prova escolhida' : 'provas escolhidas' }}
+            para o edital: {{ provasContadas.map(nomeDaProva).join(', ') }}.
+          </template>
+          <template v-else>Nenhuma prova escolhida para o edital está classificada ainda: não há questões na contagem.</template>
+          <template v-if="provasSemClassificacao.length">
+            Fora da contagem, sem classificação: {{ provasSemClassificacao.map(nomeDaProva).join(', ') }}.
+          </template>
+          <template v-if="provasContadas.length && provasContadas.length < 3">Com poucas provas, a incidência é só um indício.</template>
+        </p>
 
+        <div class="controles">
+          <SelectButton v-model="modo" :options="MODOS" option-label="rotulo" option-value="valor" :allow-empty="false" />
+          <SelectButton v-if="modo === 'lei'" v-model="filtro" :options="FILTROS" option-label="rotulo" option-value="valor" :allow-empty="false" />
+        </div>
+
+        <section v-if="modo === 'incidencia'" class="painel">
+          <DataTable :value="maisCobrados" data-key="chave" row-hover class="tabela-clicavel" @row-click="abrir($event.data.citacao, $event.data.artigo)">
+            <Column header="Artigo">
+              <template #body="{ data }">
+                <span class="ranking__artigo">Art. {{ data.artigo.numero }}</span>
+                <span class="ranking__norma">{{ data.citacao.norma.nome }}</span>
+              </template>
+            </Column>
+            <Column field="principal" header="Principal" sortable>
+              <template #body="{ data }"><span class="ranking__numero">{{ data.principal }}</span></template>
+            </Column>
+            <Column field="relacionado" header="Relacionado" sortable>
+              <template #body="{ data }"><span class="ranking__numero">{{ data.relacionado }}</span></template>
+            </Column>
+            <Column field="provas" header="Provas" sortable>
+              <template #body="{ data }"><span class="ranking__numero">{{ data.provas }}</span></template>
+            </Column>
+            <Column field="ultimo_ano" header="Última vez" sortable>
+              <template #body="{ data }"><span class="ranking__numero">{{ data.ultimo_ano ?? '—' }}</span></template>
+            </Column>
+            <Column header="Item do edital">
+              <template #body="{ data }"><span class="ranking__itens">{{ data.itens.join(' · ') }}</span></template>
+            </Column>
+            <template #empty>
+              <p class="pendente">Nenhum artigo pedido foi cobrado nas provas escolhidas.</p>
+            </template>
+          </DataTable>
+          <p class="ranking__rodape pendente">
+            Principal: o artigo decide a resposta. Relacionado: aparece na questão sem decidi-la. Os artigos pedidos
+            nunca cobrados estão no filtro “Sem questões”, na ordem do edital.
+          </p>
+        </section>
+
+        <template v-else>
         <p v-if="disciplinas.length === 0" class="pendente">Nenhum artigo neste filtro.</p>
 
         <section v-for="disciplina in disciplinas" :key="disciplina.id" class="painel disciplina">
@@ -263,7 +358,7 @@ const janelaVisivel = computed({
                             @click="abrir(citacao, artigo)"
                           >
                             {{ artigo.numero }}
-                            <sup v-if="artigo.questoes?.length" class="artigo__questoes">{{ artigo.questoes.length }}</sup>
+                            <sup v-if="artigo.questoes?.length" class="artigo__questoes">{{ artigo.incidencia.principal }}<small v-if="artigo.incidencia.relacionado">+{{ artigo.incidencia.relacionado }}</small></sup>
                           </button>
                           <span v-if="parte.artigos.length === 0" class="pendente">nenhum artigo</span>
                         </div>
@@ -309,7 +404,7 @@ const janelaVisivel = computed({
                       @click="abrir(citacao, artigo)"
                     >
                       {{ artigo.numero }}
-                      <sup v-if="artigo.questoes?.length" class="artigo__questoes">{{ artigo.questoes.length }}</sup>
+                      <sup v-if="artigo.questoes?.length" class="artigo__questoes">{{ artigo.incidencia.principal }}<small v-if="artigo.incidencia.relacionado">+{{ artigo.incidencia.relacionado }}</small></sup>
                     </button>
                   </div>
                 </template>
@@ -324,7 +419,9 @@ const janelaVisivel = computed({
           <span class="artigo artigo--faltando">295</span> faltando no texto
           <span class="artigo artigo--encontrado artigo--vigencia">296</span> alterado depois do edital
           <span class="artigo artigo--encontrado artigo--letra">313-A</span> com letra, veio do texto da norma
+          <span class="artigo artigo--encontrado">312<sup class="artigo__questoes">3<small>+1</small></sup></span> cobrado como principal em 3 questões e relacionado em 1
         </p>
+        </template>
       </template>
     </template>
   </template>
@@ -370,6 +467,11 @@ const janelaVisivel = computed({
 
       <section v-if="aberto.artigo.questoes?.length" class="janela__questoes">
         <span class="rotulo">Cobrado em</span>
+        <p class="janela__incidencia">
+          {{ dicaDaIncidencia(aberto.artigo) }}, em {{ aberto.artigo.incidencia.provas }}
+          {{ aberto.artigo.incidencia.provas === 1 ? 'prova' : 'provas' }}<template v-if="aberto.artigo.incidencia.ultimo_ano">;
+          a última em {{ aberto.artigo.incidencia.ultimo_ano }}</template>.
+        </p>
         <component
           :is="eAluno ? 'span' : 'router-link'"
           v-for="q in aberto.artigo.questoes"
@@ -450,8 +552,41 @@ const janelaVisivel = computed({
 .numero--vigencia {
   border-left-color: var(--warning);
 }
-.filtro {
-  margin: 1rem 0;
+.base {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+.controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+.artigo__questoes small {
+  font-size: 0.9em;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.ranking__artigo {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.ranking__norma,
+.ranking__itens {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+.ranking__numero {
+  font-variant-numeric: tabular-nums;
+}
+.ranking__rodape {
+  margin: 0.75rem 1rem;
+  font-size: 0.8rem;
+}
+.janela__incidencia {
+  margin: 0 0 0.3rem;
 }
 .disciplina {
   margin-bottom: 1.25rem;

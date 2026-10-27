@@ -238,7 +238,8 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
 
     const comItens = disciplinas.filter((d) => d.itens.length > 0);
     await anexarQuestoes(editalId, comItens);
-    return { edital: { id: edital.id, data_publicacao: dataDoEdital }, resumo: resumir(comItens), disciplinas: comItens };
+    const provas = await provasDoEdital(editalId);
+    return { edital: { id: edital.id, data_publicacao: dataDoEdital }, resumo: resumir(comItens), provas, disciplinas: comItens };
   }
 
   // O orientador confere (ou desfaz a conferência de) a lista de artigos de uma citação por estrutura.
@@ -269,13 +270,29 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
     return cobrirCitacao(atualizada, carregadorDeNormas(edital.data_publicacao), edital.data_publicacao);
   }
 
+  // A base da incidência (etapa 6a): as provas escolhidas para o edital, com o andamento da classificação. Prova
+  // ainda não classificada não conta, e a tela avisa.
+  async function provasDoEdital(editalId) {
+    return sequelize.query(
+      `SELECT p.id, p.banca, p.ano, p.classificacao_status
+         FROM prova p
+         JOIN edital_prova ep ON ep.prova_id = p.id AND ep.edital_id = :editalId
+        ORDER BY p.ano DESC NULLS LAST, p.banca`,
+      { replacements: { editalId }, type: sequelize.QueryTypes.SELECT }
+    );
+  }
+
   // As questões das provas escolhidas para o edital (etapa 3c) que caem em cada artigo, pela classificação por norma
-  // e artigo. Descartadas e não jurídicas ficam de fora.
+  // e artigo. Descartadas e não jurídicas ficam de fora; as "a revisar" entram.
+  //
+  // Incidência de cada artigo (etapa 6a, decisões do orientador, 2026-10-27): só as provas escolhidas para o edital,
+  // todas (sem recorte de anos); principal e relacionado contados separados; lei alterada depois da prova conta igual.
   async function anexarQuestoes(editalId, disciplinas) {
     const linhas = await sequelize.query(
       `SELECT qa.norma_id, qa.artigo, qa.papel, q.id AS questao_id, q.numero, p.id AS prova_id, p.ano, p.banca
          FROM questao_artigo qa
-         JOIN prova_questao q ON q.id = qa.questao_id AND q.status <> 'descartada' AND q.classificacao_status <> 'nao_juridica'
+         JOIN prova_questao q ON q.id = qa.questao_id AND q.status <> 'descartada'
+          AND q.classificacao_status IS DISTINCT FROM 'nao_juridica'
          JOIN prova p ON p.id = q.prova_id
          JOIN edital_prova ep ON ep.prova_id = p.id AND ep.edital_id = :editalId
         ORDER BY p.ano DESC NULLS LAST, q.numero`,
@@ -290,11 +307,26 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
     for (const citacao of disciplinas.flatMap((d) => d.itens.flatMap((i) => i.citacoes))) {
       if (!citacao.norma) continue;
       const artigos = [...citacao.artigos, ...(citacao.estrutura?.partes || []).flatMap((p) => p.artigos)];
-      for (const artigo of artigos) artigo.questoes = porArtigo.get(`${citacao.norma.id}|${artigo.numero}`) || [];
+      for (const artigo of artigos) {
+        artigo.questoes = porArtigo.get(`${citacao.norma.id}|${artigo.numero}`) || [];
+        artigo.incidencia = incidencia(artigo.questoes);
+      }
     }
   }
 
   return { cobertura, conferirEstrutura };
+}
+
+// Questões (já ordenadas da prova mais nova para a mais antiga) -> quantas como principal e como relacionado, em
+// quantas provas e o ano da mais recente.
+function incidencia(questoes) {
+  const anos = questoes.map((q) => q.ano).filter((ano) => ano != null);
+  return {
+    principal: questoes.filter((q) => q.papel === "principal").length,
+    relacionado: questoes.filter((q) => q.papel === "relacionado").length,
+    provas: new Set(questoes.map((q) => q.prova_id)).size,
+    ultimo_ano: anos.length ? Math.max(...anos) : null
+  };
 }
 
 function resumir(disciplinas) {
@@ -318,4 +350,4 @@ function resumir(disciplinas) {
   };
 }
 
-module.exports = { criarCoberturaService, abrangenciaDe, versaoDoEdital };
+module.exports = { criarCoberturaService, abrangenciaDe, versaoDoEdital, incidencia };
