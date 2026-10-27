@@ -2,13 +2,15 @@
 import { onMounted, ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
-import { criarEquipeNaPlataforma, listarEquipesDaPlataforma } from '../services/equipe.service'
+import { alterarContaNaPlataforma, criarEquipeNaPlataforma, listarEquipesDaPlataforma } from '../services/equipe.service'
 import { useSessao } from '../composables/useSessao'
 
 // Administração da plataforma (etapa 4b-2): todas as equipes e a criação de uma nova, já com o orientador.
-// Só para o administrador; funciona mesmo sem ele estar em nenhuma equipe.
+// Só para o administrador; funciona mesmo sem ele estar em nenhuma equipe. O administrador também corrige o nome, o
+// e-mail e a senha do orientador (menos de outro administrador, que muda a sua em Minha conta).
 
 const toast = useToast()
 const { carregar: recarregarSessao } = useSessao()
@@ -51,6 +53,48 @@ async function criar() {
     criando.value = false
   }
 }
+
+// Edição da conta de um orientador: manda só o que mudou.
+const editando = ref(null)
+const dadosDaConta = ref({})
+const salvandoConta = ref(false)
+const erroDaConta = ref('')
+
+function editar(orientador) {
+  editando.value = orientador
+  dadosDaConta.value = { nome: orientador.nome, email: orientador.email, senha: '' }
+  erroDaConta.value = ''
+}
+
+async function salvarConta() {
+  const o = editando.value
+  const d = dadosDaConta.value
+  const mudancas = {}
+  if (d.nome.trim() !== o.nome) mudancas.nome = d.nome
+  if (d.email.trim().toLowerCase() !== o.email) mudancas.email = d.email
+  if (d.senha) mudancas.senha = d.senha
+  if (Object.keys(mudancas).length === 0) {
+    editando.value = null
+    return
+  }
+  salvandoConta.value = true
+  erroDaConta.value = ''
+  try {
+    await alterarContaNaPlataforma(o.usuario_id, mudancas)
+    editando.value = null
+    toast.add({
+      severity: 'success',
+      summary: 'Conta atualizada',
+      detail: mudancas.senha ? 'Passe a senha nova para a pessoa.' : undefined,
+      life: 6000
+    })
+    await carregar()
+  } catch (e) {
+    erroDaConta.value = e.message
+  } finally {
+    salvandoConta.value = false
+  }
+}
 </script>
 
 <template>
@@ -76,7 +120,20 @@ async function criar() {
         <tr v-for="equipe in equipes" :key="equipe.id">
           <td class="nome">{{ equipe.nome }}</td>
           <td>
-            <span v-for="o in equipe.orientadores" :key="o.email" class="orientador">{{ o.nome }} <em>{{ o.email }}</em></span>
+            <span v-for="o in equipe.orientadores" :key="o.email" class="orientador">
+              {{ o.nome }} <em>{{ o.email }}</em>
+              <Button
+                v-if="!o.admin"
+                icon="pi pi-pencil"
+                text
+                rounded
+                size="small"
+                severity="secondary"
+                :aria-label="`Editar ${o.nome}`"
+                title="Corrigir nome, e-mail ou senha"
+                @click="editar(o)"
+              />
+            </span>
             <span v-if="equipe.orientadores.length === 0" class="pendente">sem orientador ativo</span>
           </td>
           <td class="mono">{{ equipe.membros_ativos }}</td>
@@ -100,6 +157,30 @@ async function criar() {
     </form>
     <p class="painel__corpo dica">Se o e-mail do orientador já tem conta, nome e senha não são usados.</p>
   </section>
+
+  <Dialog
+    :visible="Boolean(editando)"
+    modal
+    :header="editando ? `Editar ${editando.nome}` : 'Editar'"
+    :closable="!salvandoConta"
+    :style="{ width: 'min(440px, calc(100vw - 2rem))' }"
+    @update:visible="(v) => !v && (editando = null)"
+  >
+    <form v-if="editando" id="form-editar-conta" class="campos" @submit.prevent="salvarConta">
+      <label>Nome<InputText v-model="dadosDaConta.nome" autocomplete="off" /></label>
+      <label>E-mail<InputText v-model="dadosDaConta.email" type="email" autocomplete="off" /></label>
+      <label>
+        Nova senha
+        <InputText v-model="dadosDaConta.senha" autocomplete="new-password" placeholder="deixe em branco para manter a atual" />
+      </label>
+      <p class="dica">A conta vale em todas as equipes em que a pessoa está.</p>
+      <Message v-if="erroDaConta" severity="error" size="small" :closable="false">{{ erroDaConta }}</Message>
+    </form>
+    <template #footer>
+      <Button label="Cancelar" text severity="secondary" :disabled="salvandoConta" @click="editando = null" />
+      <Button type="submit" form="form-editar-conta" label="Salvar" icon="pi pi-check" :loading="salvandoConta" />
+    </template>
+  </Dialog>
 </template>
 
 <style scoped>
@@ -153,5 +234,17 @@ async function criar() {
   margin: 0;
   font-size: 0.8rem;
   color: var(--muted-foreground);
+}
+.campos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.campos label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 </style>

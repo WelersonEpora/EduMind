@@ -186,10 +186,64 @@ test("editar a conta: só de quem é só desta equipe e não é administrador; a
   assert.equal((await patch("so-alfa@teste.br", { senha: "curta" })).status, 400);
   assert.equal((await patch("so-alfa@teste.br", { nome: " " })).status, 400);
 
-  // Conta em outra equipe (mesmo desativada lá), de administrador ou a própria: a conta não muda; o vínculo, sim.
+  // Conta em outra equipe (mesmo desativada lá), de administrador ou a própria: e-mail e senha não mudam; o nome e o
+  // vínculo, sim.
   for (const email of ["duas@teste.br", "admin@teste.br", "ori@teste.br"]) {
     assert.equal((await patch(email, { senha: "tomada-123" })).status, 403, email);
+    assert.equal((await patch(email, { email: "tomado@teste.br" })).status, 403, email);
     assert.equal((await loginCom(base, email, "tomada-123")).status, 401, email);
+    const renomeado = await patch(email, { nome: `Nome de ${email}` });
+    assert.equal(renomeado.status, 200, email);
+    assert.equal((await renomeado.json()).data.nome, `Nome de ${email}`);
   }
   assert.equal((await (await patch("duas@teste.br", { papel: "aluno", ativo: false })).json()).data.ativo, false);
+});
+
+test("Minha conta: o nome muda direto; o e-mail exige a senha atual e não pode ser de outra conta", async (t) => {
+  const { sequelize, base } = await subir(t);
+  await criarUsuario(sequelize, { email: "ana@teste.br", nome: "Anna", equipes: [{ id: await criarEquipe(sequelize) }] });
+  await criarUsuario(sequelize, { email: "outra@teste.br" });
+  const api = await entrar(base, "ana@teste.br");
+  const url = `${base}/api/v1/auth/conta`;
+
+  // Rota com o limite do login (10 por minuto): o teste fica abaixo dele.
+  assert.equal((await api(url, json("PUT", { nome: "  " }))).status, 400);
+  const renomeada = await api(url, json("PUT", { nome: "Ana" }));
+  assert.equal(renomeada.status, 200);
+  assert.equal((await renomeada.json()).data.nome, "Ana");
+
+  assert.equal((await api(url, json("PUT", { email: "ana2@teste.br" }))).status, 400);
+  assert.equal((await api(url, json("PUT", { email: "ana2@teste.br", atual: "errada" }))).status, 400);
+  assert.equal((await api(url, json("PUT", { email: "outra@teste.br", atual: SENHA }))).status, 409);
+  // O mesmo e-mail (com outra caixa) não conta como mudança: não pede a senha.
+  assert.equal((await api(url, json("PUT", { nome: "Ana", email: "ANA@teste.br" }))).status, 200);
+  const novoEmail = await api(url, json("PUT", { email: "Ana2@Teste.br", atual: SENHA }));
+  assert.equal((await novoEmail.json()).data.email, "ana2@teste.br");
+  assert.equal((await loginCom(base, "ana2@teste.br", SENHA)).status, 200);
+});
+
+test("administrador corrige nome, e-mail e senha de quem não é administrador", async (t) => {
+  const { sequelize, base } = await subir(t);
+  const [alfa, beta] = [await criarEquipe(sequelize, "Alfa"), await criarEquipe(sequelize, "Beta")];
+  await criarUsuario(sequelize, { email: "admin@teste.br", admin: true });
+  const outroAdmin = await criarUsuario(sequelize, { email: "outro-admin@teste.br", admin: true });
+  await criarUsuario(sequelize, { email: "ori@teste.br", nome: "Orientdora", equipes: [{ id: alfa, papel: "orientador" }, { id: beta, papel: "aluno" }] });
+  const admin = await entrar(base, "admin@teste.br");
+  const apiOri = await entrar(base, "ori@teste.br");
+  const lista = (await (await admin(`${base}/api/v1/admin/equipes`)).json()).data;
+  const ori = lista.find((e) => e.nome === "Alfa").orientadores[0];
+  assert.equal(ori.admin, false);
+  const url = (id) => `${base}/api/v1/admin/usuarios/${id}`;
+
+  // Mesmo em duas equipes, o administrador corrige a conta.
+  const corrigida = await admin(url(ori.usuario_id), json("PATCH", { nome: "Orientadora", senha: "redefinida-1" }));
+  assert.equal(corrigida.status, 200);
+  assert.equal((await corrigida.json()).data.nome, "Orientadora");
+  assert.equal((await loginCom(base, "ori@teste.br", "redefinida-1")).status, 200);
+
+  assert.equal((await admin(url(ori.usuario_id), json("PATCH", { email: "outro-admin@teste.br" }))).status, 409);
+  assert.equal((await admin(url(ori.usuario_id), json("PATCH", {}))).status, 400);
+  assert.equal((await admin(url("nao-e-uuid"), json("PATCH", { nome: "X" }))).status, 404);
+  assert.equal((await admin(url(outroAdmin), json("PATCH", { senha: "tomada-123" }))).status, 403);
+  assert.equal((await apiOri(url(ori.usuario_id), json("PATCH", { nome: "X" }))).status, 403);
 });

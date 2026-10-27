@@ -28,3 +28,8 @@ export async function listarEquipesDaPlataforma() {
 export async function criarEquipeNaPlataforma(dados) {
   return (await http.post('/api/v1/admin/equipes', dados)).data
 }
+
+// Administrador: { nome, email, senha } de quem não é administrador.
+export async function alterarContaNaPlataforma(usuarioId, alteracoes) {
+  return (await http.patch(`/api/v1/admin/usuarios/${usuarioId}`, alteracoes)).data.data
+}

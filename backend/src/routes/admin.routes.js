@@ -16,6 +16,11 @@ function criarRotasDeAdmin(equipeService) {
     res.status(201).json({ data: equipe, contaJaExistia });
   });
 
+  // { nome, email, senha }: corrige a conta de quem não é administrador.
+  router.patch("/usuarios/:usuarioId", async (req, res) => {
+    res.json({ data: await equipeService.alterarConta(req.params.usuarioId, req.body || {}) });
+  });
+
   return router;
 }
 

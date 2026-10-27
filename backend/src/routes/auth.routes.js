@@ -32,6 +32,11 @@ function criarRotasDeAuth({ authService, sessao }) {
     res.status(204).end();
   });
 
+  // { nome, email, atual }. O e-mail só muda com a senha atual; por isso o mesmo limite do login.
+  router.put("/conta", limitarLogin, exigirLogin({ sessao, authService }), async (req, res) => {
+    res.json({ data: await authService.alterarConta(req.usuario.id, req.body || {}) });
+  });
+
   return router;
 }
 

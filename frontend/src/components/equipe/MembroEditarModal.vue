@@ -9,8 +9,9 @@ import SelectButton from 'primevue/selectbutton'
 import { alterarMembro } from '../../services/equipe.service'
 import { NOMES_DOS_PAPEIS } from '../../composables/useSessao'
 
-// Edita um membro da equipe (etapa 4b-2). Papel e situação, sempre. Nome, e-mail e senha só quando a conta é só desta
-// equipe e não é de administrador (conta_editavel); a própria conta se muda em Minha conta. Manda só o que mudou.
+// Edita um membro da equipe (etapa 4b-2). Papel, situação e nome, sempre (o nome, inclusive o próprio: decisão de
+// 2026-10-27). E-mail e senha só quando a conta é só desta equipe e não é de administrador (conta_editavel); os
+// próprios se mudam em Minha conta. Manda só o que mudou.
 // Os editais que o aluno vê se atribuem na aba Alunos de cada edital, não aqui (decisão de 2026-10-27).
 
 const visivel = defineModel('visible', { type: Boolean, default: false })
@@ -44,8 +45,8 @@ function alteracoes() {
   const saida = {}
   if (d.papel !== m.papel) saida.papel = d.papel
   if (d.ativo !== m.ativo) saida.ativo = d.ativo
+  if (d.nome.trim() !== m.nome) saida.nome = d.nome
   if (editaConta.value) {
-    if (d.nome.trim() !== m.nome) saida.nome = d.nome
     if (d.email.trim().toLowerCase() !== m.email) saida.email = d.email
     if (d.senha) saida.senha = d.senha
   }
@@ -85,8 +86,8 @@ async function salvar() {
         <small v-if="!dados.ativo" class="dica">Desativada, a pessoa perde o acesso a esta equipe. Nada é apagado.</small>
       </div>
 
+      <label>Nome<InputText v-model="dados.nome" autocomplete="off" /></label>
       <template v-if="editaConta">
-        <label>Nome<InputText v-model="dados.nome" autocomplete="off" /></label>
         <label>E-mail<InputText v-model="dados.email" type="email" autocomplete="off" /></label>
         <label>
           Nova senha
@@ -94,15 +95,13 @@ async function salvar() {
         </label>
       </template>
       <div v-else class="conta">
-        <span class="conta__nome">{{ membro.nome }}</span>
         <span class="conta__email">{{ membro.email }}</span>
         <p class="dica">
           <template v-if="souEu">
-            Para mudar o seu nome, e-mail ou senha, use <router-link :to="{ name: 'conta' }" @click="visivel = false">Minha conta</router-link>.
+            Para mudar o seu e-mail ou senha, use <router-link :to="{ name: 'conta' }" @click="visivel = false">Minha conta</router-link>.
           </template>
           <template v-else>
-            Esta conta também é usada fora desta equipe: só a própria pessoa muda o nome, o e-mail e a senha, em Minha
-            conta.
+            Esta conta também é usada fora desta equipe: só a própria pessoa muda o e-mail e a senha, em Minha conta.
           </template>
         </p>
       </div>

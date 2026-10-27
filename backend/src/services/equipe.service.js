@@ -4,7 +4,7 @@ const { randomUUID } = require("node:crypto");
 const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const senha = require("../shared/senha");
-const { normalizarEmail } = require("./auth.service");
+const { normalizarEmail, textoObrigatorio, dadosDaConta, gravarConta } = require("./auth.service");
 const { PAPEIS } = require("../models/membro");
 
 // Membros da equipe e equipes da plataforma (etapa 4b-2). Decisões do orientador, 2026-10-26:
@@ -12,18 +12,15 @@ const { PAPEIS } = require("../models/membro");
 //   à equipe sem apagar nada.
 // - Quem é incluído com um e-mail que já tem conta só entra na equipe: a senha e o nome dele não mudam.
 // - A equipe nunca fica sem orientador ativo.
-// - O orientador edita nome, e-mail e senha só de quem é só desta equipe e não é administrador (conta_editavel): a
-//   conta é da pessoa, não da equipe. Sem essa trava, quem orienta uma equipe poderia incluir o e-mail de alguém de
-//   outra equipe e trocar a senha dela. A própria conta se muda em Minha conta, com a senha atual.
-// - O administrador da plataforma cria as equipes, cada uma já com o seu orientador.
+// - O orientador corrige o nome de qualquer membro, inclusive o próprio (decisão de 2026-10-27: o nome não dá acesso
+//   a nada). E-mail e senha, só de quem é só desta equipe e não é administrador (conta_editavel): a conta é da pessoa,
+//   não da equipe. Sem essa trava, quem orienta uma equipe poderia incluir o e-mail de alguém de outra equipe e trocar
+//   a senha dela. O próprio e-mail e a própria senha se mudam em Minha conta, com a senha atual.
+// - O administrador da plataforma cria as equipes, cada uma já com o seu orientador, e corrige nome, e-mail e senha
+//   de qualquer conta que não seja de administrador (decisão de 2026-10-27: o orientador não muda a própria conta
+//   pelo modal e pode ter sido cadastrado com o nome errado).
 // - O aluno vê só os editais que o orientador atribui a ele (etapa 4c, edital_aluno), na aba Alunos de cada edital; a
 //   lista de membros traz os editais atribuídos a cada aluno, só para consulta.
-
-const textoObrigatorio = (valor, nome) => {
-  const texto = typeof valor === "string" ? valor.trim() : "";
-  if (!texto) throw new AppError(400, `Informe ${nome}.`);
-  return texto;
-};
 
 function emailValido(valor) {
   const email = normalizarEmail(valor);
@@ -71,6 +68,7 @@ function criarEquipeService({ sequelize }) {
       email: m.usuario.email,
       papel: m.papel,
       ativo: m.ativo,
+      admin: m.usuario.admin,
       conta_editavel: !m.usuario.admin && !foraDaqui.has(m.usuario.id),
       ...(m.papel === "aluno" && { editais: atribuidos.filter((a) => a.usuario_id === m.usuario.id).map((a) => a.edital_id) }),
       created_at: m.created_at
@@ -114,8 +112,9 @@ function criarEquipeService({ sequelize }) {
     return { membro: (await membros(equipeId)).find((m) => m.id === id), contaJaExistia };
   }
 
-  // Muda o vínculo (papel, ativo) e, se a conta for editável, a conta (nome, email, senha). A equipe precisa continuar
-  // com pelo menos um orientador ativo. quemAltera: o usuário da sessão (a própria conta se muda em Minha conta).
+  // Muda o vínculo (papel, ativo), o nome e, se a conta for editável, o e-mail e a senha. A equipe precisa continuar
+  // com pelo menos um orientador ativo. quemAltera: o usuário da sessão (o próprio e-mail e a própria senha se mudam
+  // em Minha conta).
   async function alterarMembro(equipeId, membroId, { papel, ativo, nome, email, senha: senhaNova } = {}, { quemAltera } = {}) {
     const vinculo = {};
     if (papel !== undefined) vinculo.papel = papelValido(papel);
@@ -123,26 +122,23 @@ function criarEquipeService({ sequelize }) {
       if (typeof ativo !== "boolean") throw new AppError(400, 'Indique "ativo": true ou false.');
       vinculo.ativo = ativo;
     }
-    const conta = {};
-    if (nome !== undefined) conta.nome = textoObrigatorio(nome, "o nome");
-    if (email !== undefined) conta.email = emailValido(email);
-    if (senhaNova !== undefined) conta.senha_hash = await senha.gerarHash(senha.validar(senhaNova));
+    const conta = await dadosDaConta({ nome, email, senha: senhaNova });
     if (Object.keys(vinculo).length === 0 && Object.keys(conta).length === 0) throw new AppError(400, "Nada para alterar.");
 
     await sequelize.transaction(async (transaction) => {
       const membro = eUuid(membroId) ? await Membro.findOne({ where: { id: membroId, equipe_id: equipeId }, transaction, lock: true }) : null;
       if (!membro) throw new AppError(404, "Membro não encontrado nesta equipe.");
       if (Object.keys(conta).length) {
-        if (membro.usuario_id === quemAltera) throw new AppError(403, "Para mudar o seu nome, e-mail ou senha, use Minha conta.");
+        // O nome não dá acesso a nada: o orientador corrige o de qualquer membro, inclusive o próprio. E-mail e senha só
+        // de quem é só desta equipe e não é administrador.
         const usuario = await Usuario.findByPk(membro.usuario_id, { transaction, lock: true });
-        if (usuario.admin || (await emOutrasEquipes(equipeId, [usuario.id], transaction)).size) {
-          throw new AppError(403, "Esta pessoa também está em outra equipe: só ela muda o nome, o e-mail e a senha, em Minha conta.");
+        if (conta.email || conta.senha_hash) {
+          if (usuario.id === quemAltera) throw new AppError(403, "Para mudar o seu e-mail ou senha, use Minha conta.");
+          if (usuario.admin || (await emOutrasEquipes(equipeId, [usuario.id], transaction)).size) {
+            throw new AppError(403, "Esta pessoa também está em outra equipe: só ela muda o e-mail e a senha, em Minha conta.");
+          }
         }
-        if (conta.email && conta.email !== usuario.email) {
-          const dono = await Usuario.findOne({ where: { email: conta.email }, attributes: ["id"], raw: true, transaction });
-          if (dono) throw new AppError(409, "Este e-mail já é de outra conta.");
-        }
-        await usuario.update(conta, { transaction });
+        await gravarConta(Usuario, usuario, conta, transaction);
       }
       if (Object.keys(vinculo).length) await membro.update(vinculo, { transaction });
       const orientadores = await Membro.count({ where: { equipe_id: equipeId, papel: "orientador", ativo: true }, transaction });
@@ -159,7 +155,9 @@ function criarEquipeService({ sequelize }) {
         const lista = await membros(e.id);
         return {
           ...e,
-          orientadores: lista.filter((m) => m.papel === "orientador" && m.ativo).map((m) => ({ nome: m.nome, email: m.email })),
+          orientadores: lista
+            .filter((m) => m.papel === "orientador" && m.ativo)
+            .map((m) => ({ usuario_id: m.usuario_id, nome: m.nome, email: m.email, admin: m.admin })),
           membros_ativos: lista.filter((m) => m.ativo).length
         };
       })
@@ -178,7 +176,21 @@ function criarEquipeService({ sequelize }) {
     return { equipe: await equipe(id), contaJaExistia };
   }
 
-  return { equipe, membros, renomear, incluirMembro, alterarMembro, listarEquipes, criarEquipe };
+  // Administrador: corrige nome, e-mail e senha de uma conta. A de outro administrador (e a própria) não: cada um muda
+  // a sua em Minha conta.
+  async function alterarConta(usuarioId, dados = {}) {
+    const conta = await dadosDaConta({ nome: dados.nome, email: dados.email, senha: dados.senha });
+    if (Object.keys(conta).length === 0) throw new AppError(400, "Nada para alterar.");
+    return sequelize.transaction(async (transaction) => {
+      const usuario = eUuid(usuarioId) ? await Usuario.findByPk(usuarioId, { transaction, lock: true }) : null;
+      if (!usuario) throw new AppError(404, "Conta não encontrada.");
+      if (usuario.admin) throw new AppError(403, "Conta de administrador: cada um muda a sua em Minha conta.");
+      await gravarConta(Usuario, usuario, conta, transaction);
+      return { id: usuario.id, nome: usuario.nome, email: usuario.email };
+    });
+  }
+
+  return { equipe, membros, renomear, incluirMembro, alterarMembro, listarEquipes, criarEquipe, alterarConta };
 }
 
 module.exports = { criarEquipeService };

@@ -25,3 +25,8 @@ export async function buscarPerfil() {
 export async function trocarSenha(atual, nova) {
   await http.put('/api/v1/auth/senha', { atual, nova })
 }
+
+// { nome, email, atual } (a senha atual só é pedida quando o e-mail muda) → o perfil atualizado
+export async function alterarConta(dados) {
+  return (await http.put('/api/v1/auth/conta', dados)).data.data
+}

@@ -1,15 +1,44 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
-import { trocarSenha } from '../services/auth.service'
+import { alterarConta, trocarSenha } from '../services/auth.service'
 import { useSessao, NOMES_DOS_PAPEIS } from '../composables/useSessao'
 
-// Minha conta (etapa 4b-2): quem sou, em que equipes estou e a troca da senha (a inicial é passada por quem incluiu).
+// Minha conta (etapa 4b-2): quem sou, em que equipes estou, o nome e o e-mail e a troca da senha (a inicial é passada
+// por quem incluiu). O e-mail é o login: mudar pede a senha atual.
 
 const toast = useToast()
-const { usuario } = useSessao()
+const { usuario, carregar } = useSessao()
+
+const conta = ref({ nome: '', email: '', atual: '' })
+const salvandoConta = ref(false)
+watch(
+  usuario,
+  (u) => {
+    conta.value = { nome: u?.nome || '', email: u?.email || '', atual: '' }
+  },
+  { immediate: true }
+)
+const mudaEmail = computed(() => conta.value.email.trim().toLowerCase() !== (usuario.value?.email || ''))
+
+async function salvarConta() {
+  const dados = {}
+  if (conta.value.nome.trim() !== usuario.value?.nome) dados.nome = conta.value.nome
+  if (mudaEmail.value) Object.assign(dados, { email: conta.value.email, atual: conta.value.atual })
+  if (Object.keys(dados).length === 0) return
+  salvandoConta.value = true
+  try {
+    await alterarConta(dados)
+    await carregar()
+    toast.add({ severity: 'success', summary: 'Conta atualizada', detail: dados.email ? 'Entre com o e-mail novo a partir de agora.' : undefined, life: 5000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Não alterou a conta', detail: e.message, life: 6000 })
+  } finally {
+    salvandoConta.value = false
+  }
+}
 
 const atual = ref('')
 const nova = ref('')
@@ -48,6 +77,19 @@ async function salvar() {
       <li v-for="e in usuario?.equipes || []" :key="e.id">{{ e.nome }} <em>{{ NOMES_DOS_PAPEIS[e.papel] }}</em></li>
       <li v-if="!usuario?.equipes?.length" class="pendente">Nenhuma equipe.</li>
     </ul>
+  </section>
+
+  <section class="painel senha">
+    <div class="painel__cabecalho"><h2>Nome e e-mail</h2></div>
+    <form class="painel__corpo formulario" @submit.prevent="salvarConta">
+      <label>Nome<InputText v-model="conta.nome" required autocomplete="name" /></label>
+      <label>E-mail<InputText v-model="conta.email" type="email" required autocomplete="email" /></label>
+      <label v-if="mudaEmail">
+        Senha atual
+        <InputText v-model="conta.atual" type="password" autocomplete="current-password" required placeholder="para mudar o e-mail" />
+      </label>
+      <Button type="submit" label="Salvar" :loading="salvandoConta" />
+    </form>
   </section>
 
   <section class="painel senha">
