@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
@@ -16,6 +16,7 @@ import { useSessao } from '../composables/useSessao'
 // Cobertura do edital (etapa 2c): cada artigo pedido nos itens aprovados, cruzado com o texto da norma na biblioteca.
 // Encontrado, revogado ou faltando; o alerta de vigência marca os alterados depois da publicação do edital.
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
 // O aluno lê a cobertura (etapa 4c): sem as pendências do trabalho do orientador, sem conferir a estrutura e sem
 // links para Fontes, Revisão e questões, que ele não vê. Quantas vezes o artigo caiu continua à vista.
@@ -77,11 +78,37 @@ const disciplinas = computed(() => {
 
 // Incidência (etapa 6a): os artigos pedidos em ordem de cobrança nas provas escolhidas para o edital. Principal e
 // relacionado contam separados; um artigo pedido em mais de um item aparece uma vez, com os itens juntos.
-const MODOS = [
-  { valor: 'lei', rotulo: 'Na ordem do edital' },
-  { valor: 'incidencia', rotulo: 'Mais cobrados' }
-]
+// Fora do edital (etapa 6b): questões das provas escolhidas cujo artigo principal o edital não pede. É material de
+// trabalho do orientador (item faltando na extração, mudança de escopo, classificação errada); o aluno não vê.
+const foraDoEdital = computed(() => cobertura.value?.fora_do_edital || [])
+const MODOS = computed(() => {
+  const modos = [
+    { valor: 'lei', rotulo: 'Na ordem do edital' },
+    { valor: 'incidencia', rotulo: 'Mais cobrados' }
+  ]
+  if (!eAluno.value) modos.push({ valor: 'fora', rotulo: `Fora do edital (${foraDoEdital.value.length})` })
+  return modos
+})
 const modo = ref('lei')
+
+function abrirQuestao(questao) {
+  router.push({ name: 'questoes', params: { id: edital.value.id, provaId: questao.prova_id } })
+}
+
+const MOTIVOS = {
+  artigo_nao_pedido: 'a norma é pedida, mas não este artigo',
+  norma_nao_citada: 'norma que o edital não cita',
+  norma_sem_texto: 'a norma é citada, mas ainda está sem texto: não dá para conferir'
+}
+
+// Totais de um item ou disciplina: questões distintas, como principal ou só como relacionado.
+function textoDoTotal(incidencia) {
+  if (!incidencia?.questoes) return 'nenhuma questão'
+  const partes = [`${incidencia.principal} principal`]
+  if (incidencia.relacionado) partes.push(`${incidencia.relacionado} relacionado`)
+  const provas = `${incidencia.provas} ${incidencia.provas === 1 ? 'prova' : 'provas'}`
+  return `${incidencia.questoes} ${incidencia.questoes === 1 ? 'questão' : 'questões'} (${partes.join(' + ')}) em ${provas}`
+}
 
 const maisCobrados = computed(() => {
   if (!cobertura.value) return []
@@ -298,14 +325,52 @@ const janelaVisivel = computed({
           </p>
         </section>
 
+        <section v-else-if="modo === 'fora'" class="painel">
+          <DataTable :value="foraDoEdital" data-key="questao_id" row-hover class="tabela-clicavel" @row-click="abrirQuestao($event.data)">
+            <Column header="Questão">
+              <template #body="{ data }">
+                <span class="ranking__artigo">{{ nomeDaProva(data) }} · {{ data.numero }}</span>
+                <span v-if="data.disciplina" class="ranking__norma">{{ data.disciplina }}</span>
+              </template>
+            </Column>
+            <Column header="Artigos da classificação">
+              <template #body="{ data }">
+                <span v-for="r in data.referencias" :key="`${r.norma_id}|${r.artigo}`" class="fora__referencia">
+                  {{ r.norma }}, art. {{ r.artigo }}<template v-if="r.papel === 'relacionado'"> (relacionado)</template>
+                </span>
+              </template>
+            </Column>
+            <Column header="Por quê">
+              <template #body="{ data }"><span class="ranking__itens">{{ MOTIVOS[data.motivo] }}</span></template>
+            </Column>
+            <Column header-class="coluna-abrir" body-class="coluna-abrir">
+              <template #body><i class="pi pi-chevron-right" aria-hidden="true"></i></template>
+            </Column>
+            <template #empty>
+              <p class="pendente">Todas as questões classificadas das provas escolhidas caem em artigos que o edital pede.</p>
+            </template>
+          </DataTable>
+          <p class="ranking__rodape pendente">
+            Vale pelo artigo principal. Pode ser um item que faltou na extração (veja a Revisão), uma mudança no conteúdo
+            desde a prova ou uma classificação a corrigir na tela das questões. Artigos de uma lista por estrutura ainda
+            não conferida contam como pedidos.
+          </p>
+        </section>
+
         <template v-else>
         <p v-if="disciplinas.length === 0" class="pendente">Nenhum artigo neste filtro.</p>
 
         <section v-for="disciplina in disciplinas" :key="disciplina.id" class="painel disciplina">
-          <div class="painel__cabecalho"><h2>{{ disciplina.texto }}</h2></div>
+          <div class="painel__cabecalho">
+            <h2>{{ disciplina.texto }}</h2>
+            <span class="total">{{ textoDoTotal(disciplina.incidencia) }}</span>
+          </div>
           <div class="painel__corpo">
             <div v-for="item in disciplina.itens" :key="item.id" class="item">
-              <p class="item__texto">{{ item.texto }}</p>
+              <p class="item__texto">
+                {{ item.texto }}
+                <span class="total">{{ textoDoTotal(item.incidencia) }}</span>
+              </p>
 
               <div v-for="citacao in item.citacoes" :key="citacao.id" class="citacao">
                 <div class="citacao__cabecalho">
@@ -584,6 +649,19 @@ const janelaVisivel = computed({
 .ranking__rodape {
   margin: 0.75rem 1rem;
   font-size: 0.8rem;
+}
+.total {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.item__texto .total {
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+.fora__referencia {
+  display: block;
+  font-size: 0.85rem;
 }
 .janela__incidencia {
   margin: 0 0 0.3rem;

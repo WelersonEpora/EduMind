@@ -285,4 +285,50 @@ test("incidência: principal e relacionado separados, só as provas do edital, s
     ]
   );
   assert.deepEqual([resumo.artigos_com_questoes, resumo.questoes], [2, 3]);
+
+  // Totais por item e por disciplina: questões distintas; a principal num artigo e relacionada em outro conta uma vez,
+  // como principal.
+  assert.deepEqual(disciplinas[0].itens[0].incidencia, { questoes: 3, principal: 2, relacionado: 1, provas: 2 });
+  assert.deepEqual(disciplinas[0].incidencia, { questoes: 3, principal: 2, relacionado: 1, provas: 2 });
+});
+
+test("fora do edital: artigo não pedido, norma não citada e norma citada sem texto", async (t) => {
+  const { equipeId, sequelize, edital, fontes, service } = await montar(t);
+  const cp = await confirmar(fontes, edital, "br:decreto-lei:2848:1940", {
+    jurisdicao: "BR",
+    tipo: "Decreto-Lei",
+    numero: "2.848",
+    ano: "1940",
+    nome: "Código Penal"
+  });
+  await fontes.enviarVersao(cp.id, { buffer: Buffer.from("<p>Art. 293. Um.</p><p>Art. 296. Fora.</p>"), nomeArquivo: "cp.html" });
+  // O Estatuto é citado no edital, mas sem texto; a CF não é citada.
+  const estatuto = await confirmar(fontes, edital, "sp:lei:10261:1968", { jurisdicao: "SP", tipo: "Lei", numero: "10.261", ano: "1968", nome: "Estatuto" });
+  const { Norma, Prova, ProvaQuestao, EditalProva, QuestaoArtigo } = sequelize.models;
+  const cf = randomUUID();
+  await Norma.create({ id: cf, chave: "br:constituicao:1988", nome: "Constituição Federal", jurisdicao: "BR", tipo: "Constituição", ano: "1988" });
+
+  const prova = randomUUID();
+  await Prova.create({ id: prova, equipe_id: equipeId, banca: "VUNESP", ano: 2023, classificacao_status: "classificada" });
+  await EditalProva.create({ edital_id: edital.id, prova_id: prova });
+  const alternativas = ["A", "B"].map((letra) => ({ letra, texto: letra }));
+  const questao = async (numero, referencias) => {
+    const id = randomUUID();
+    await ProvaQuestao.create({ id, prova_id: prova, numero, disciplina: "Direito", enunciado: "?", alternativas, status: "valida", classificacao_status: "classificada" });
+    for (const [norma_id, artigo, papel] of referencias) await QuestaoArtigo.create({ id: randomUUID(), questao_id: id, norma_id, artigo, papel });
+  };
+  await questao(1, [[cp.id, "293", "principal"]]);
+  await questao(2, [[cp.id, "296", "principal"], [cp.id, "293", "relacionado"]]);
+  await questao(3, [[cf, "5", "principal"]]);
+  await questao(4, [[estatuto.id, "10", "principal"]]);
+
+  const { fora_do_edital } = await service.cobertura(edital.id);
+  assert.deepEqual(
+    fora_do_edital.map((q) => [q.numero, q.motivo, q.referencias.map((r) => `${r.norma} ${r.artigo} ${r.papel}`)]),
+    [
+      [2, "artigo_nao_pedido", ["Código Penal 296 principal", "Código Penal 293 relacionado"]],
+      [3, "norma_nao_citada", ["Constituição Federal 5 principal"]],
+      [4, "norma_sem_texto", ["Estatuto 10 principal"]]
+    ]
+  );
 });

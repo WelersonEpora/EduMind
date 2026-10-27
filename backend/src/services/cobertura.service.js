@@ -237,9 +237,9 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
     await percorrer(null, null);
 
     const comItens = disciplinas.filter((d) => d.itens.length > 0);
-    await anexarQuestoes(editalId, comItens);
+    const foraDoEdital = await anexarQuestoes(editalId, comItens);
     const provas = await provasDoEdital(editalId);
-    return { edital: { id: edital.id, data_publicacao: dataDoEdital }, resumo: resumir(comItens), provas, disciplinas: comItens };
+    return { edital: { id: edital.id, data_publicacao: dataDoEdital }, resumo: resumir(comItens), provas, disciplinas: comItens, fora_do_edital: foraDoEdital };
   }
 
   // O orientador confere (ou desfaz a conferência de) a lista de artigos de uma citação por estrutura.
@@ -289,13 +289,15 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
   // todas (sem recorte de anos); principal e relacionado contados separados; lei alterada depois da prova conta igual.
   async function anexarQuestoes(editalId, disciplinas) {
     const linhas = await sequelize.query(
-      `SELECT qa.norma_id, qa.artigo, qa.papel, q.id AS questao_id, q.numero, p.id AS prova_id, p.ano, p.banca
+      `SELECT qa.norma_id, n.nome AS norma_nome, qa.artigo, qa.papel, q.id AS questao_id, q.numero, q.disciplina,
+              p.id AS prova_id, p.ano, p.banca
          FROM questao_artigo qa
+         JOIN norma n ON n.id = qa.norma_id
          JOIN prova_questao q ON q.id = qa.questao_id AND q.status <> 'descartada'
           AND q.classificacao_status IS DISTINCT FROM 'nao_juridica'
          JOIN prova p ON p.id = q.prova_id
          JOIN edital_prova ep ON ep.prova_id = p.id AND ep.edital_id = :editalId
-        ORDER BY p.ano DESC NULLS LAST, q.numero`,
+        ORDER BY p.ano DESC NULLS LAST, q.numero, qa.papel, qa.artigo`,
       { replacements: { editalId }, type: sequelize.QueryTypes.SELECT }
     );
     const porArtigo = new Map();
@@ -312,6 +314,59 @@ function criarCoberturaService({ sequelize, agora = () => new Date() }) {
         artigo.incidencia = incidencia(artigo.questoes);
       }
     }
+
+    // Totais por item e por disciplina (etapa 6b): questões distintas, só dos artigos que estão na cobertura (a lista
+    // de uma estrutura ainda não conferida não conta). Questão principal num artigo do item conta como principal,
+    // mesmo que seja relacionada em outro.
+    for (const disciplina of disciplinas) {
+      for (const item of disciplina.itens) item.incidencia = totalDaIncidencia(item.citacoes.flatMap((c) => c.artigos));
+      disciplina.incidencia = totalDaIncidencia(disciplina.itens.flatMap((i) => i.citacoes.flatMap((c) => c.artigos)));
+    }
+
+    return questoesForaDoEdital(linhas, disciplinas);
+  }
+
+  // Questões fora do edital (etapa 6b): o artigo principal não está entre os pedidos. Os artigos de uma estrutura ainda
+  // não conferida contam como pedidos, para não acusar fora o que o orientador ainda vai conferir. Norma citada no
+  // edital, mas sem texto, não dá para conferir: a questão vem com o motivo "norma_sem_texto".
+  function questoesForaDoEdital(linhas, disciplinas) {
+    const citacoes = disciplinas.flatMap((d) => d.itens.flatMap((i) => i.citacoes)).filter((c) => c.norma);
+    const pedidos = new Set();
+    for (const citacao of citacoes) {
+      for (const artigo of [...citacao.artigos, ...(citacao.estrutura?.partes || []).flatMap((p) => p.artigos)]) {
+        pedidos.add(`${citacao.norma.id}|${artigo.numero}`);
+      }
+    }
+    const comTexto = new Set(citacoes.filter((c) => c.situacao === "com_texto").map((c) => c.norma.id));
+    const citadas = new Set(citacoes.map((c) => c.norma.id));
+
+    const porQuestao = new Map();
+    for (const l of linhas) {
+      if (!porQuestao.has(l.questao_id)) {
+        porQuestao.set(l.questao_id, {
+          questao_id: l.questao_id,
+          prova_id: l.prova_id,
+          numero: l.numero,
+          ano: l.ano,
+          banca: l.banca,
+          disciplina: l.disciplina,
+          referencias: []
+        });
+      }
+      porQuestao.get(l.questao_id).referencias.push({ norma_id: l.norma_id, norma: l.norma_nome, artigo: l.artigo, papel: l.papel });
+    }
+
+    const fora = [];
+    for (const questao of porQuestao.values()) {
+      const principais = questao.referencias.filter((r) => r.papel === "principal");
+      const decisivas = principais.length ? principais : questao.referencias;
+      if (decisivas.some((r) => pedidos.has(`${r.norma_id}|${r.artigo}`))) continue;
+      let motivo = "norma_nao_citada";
+      if (decisivas.some((r) => citadas.has(r.norma_id) && !comTexto.has(r.norma_id))) motivo = "norma_sem_texto";
+      else if (decisivas.some((r) => comTexto.has(r.norma_id))) motivo = "artigo_nao_pedido";
+      fora.push({ ...questao, motivo });
+    }
+    return fora;
   }
 
   return { cobertura, conferirEstrutura };
@@ -326,6 +381,24 @@ function incidencia(questoes) {
     relacionado: questoes.filter((q) => q.papel === "relacionado").length,
     provas: new Set(questoes.map((q) => q.prova_id)).size,
     ultimo_ano: anos.length ? Math.max(...anos) : null
+  };
+}
+
+// Artigos (com as questões anexadas) -> questões distintas: principal se for principal em algum dos artigos, senão
+// relacionado; e em quantas provas.
+function totalDaIncidencia(artigos) {
+  const papelPorQuestao = new Map();
+  const provas = new Set();
+  for (const questao of artigos.flatMap((a) => a.questoes || [])) {
+    if (questao.papel === "principal" || !papelPorQuestao.has(questao.questao_id)) papelPorQuestao.set(questao.questao_id, questao.papel);
+    provas.add(questao.prova_id);
+  }
+  const papeis = [...papelPorQuestao.values()];
+  return {
+    questoes: papeis.length,
+    principal: papeis.filter((p) => p === "principal").length,
+    relacionado: papeis.filter((p) => p === "relacionado").length,
+    provas: provas.size
   };
 }
 
