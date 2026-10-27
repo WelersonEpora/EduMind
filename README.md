@@ -7,7 +7,8 @@ Ferramenta local de apoio a orientadores de concursos públicos. O MVP cobre dua
 2. **Normas de Direito:** obter, de fontes oficiais, o texto das normas citadas no edital e mostrar a
    cobertura de cada item.
 
-Fora do escopo agora: provas e questões, alunos, tutor, geração de conteúdo, login e deploy.
+Depois do MVP vieram as provas anteriores e as questões ligadas aos artigos, o login com equipes e papéis, o
+simulador do aluno, a incidência na Cobertura e a publicação. Fora do escopo agora: tutor e geração de conteúdo.
 
 ## Estado atual
 

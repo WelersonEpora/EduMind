@@ -144,13 +144,6 @@ async function sairDoSistema() {
         <i class="pi pi-sitemap"></i><span class="shell__rotulo">Equipes da plataforma</span>
       </router-link>
 
-      <template v-if="!eAluno">
-        <div class="shell__grupo"><span class="shell__rotulo">Próximas etapas</span></div>
-        <span class="shell__item shell__item--desativado" title="Fora do escopo do MVP">
-          <i class="pi pi-list-check"></i><span class="shell__rotulo">Provas e questões</span><em class="shell__etapa">depois</em>
-        </span>
-      </template>
-
       <!-- Embaixo do menu: o grupo Sistema (o guia do orientador) e a versão. -->
       <div class="shell__fim">
         <template v-if="!eAluno">
@@ -303,7 +296,7 @@ async function sairDoSistema() {
   width: 1rem;
   text-align: center;
 }
-.shell__item:hover:not(.shell__item--desativado) {
+.shell__item:hover {
   background: color-mix(in oklch, var(--accent) 60%, transparent);
   color: var(--accent-foreground);
 }
@@ -314,17 +307,6 @@ async function sairDoSistema() {
 }
 .shell__item--ativo .pi {
   color: var(--primary);
-}
-.shell__item--desativado {
-  opacity: 0.55;
-  cursor: default;
-}
-.shell__etapa {
-  margin-left: auto;
-  font-style: normal;
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 .shell__contador {
   margin-left: auto;
@@ -374,7 +356,6 @@ async function sairDoSistema() {
     padding: 0.85rem 0.5rem;
   }
   .shell--recolhido .shell__rotulo,
-  .shell--recolhido .shell__etapa,
   .shell--recolhido .shell__contador {
     display: none;
   }
