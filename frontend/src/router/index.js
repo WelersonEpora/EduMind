@@ -17,6 +17,7 @@ import LoginView from '../views/LoginView.vue'
 import EquipeView from '../views/EquipeView.vue'
 import ContaView from '../views/ContaView.vue'
 import AdminEquipesView from '../views/AdminEquipesView.vue'
+import ComoFuncionaView from '../views/ComoFuncionaView.vue'
 import { useSessao } from '../composables/useSessao'
 import { destinoSeguro } from './destino'
 
@@ -50,6 +51,8 @@ const router = createRouter({
     },
     { path: '/normas', name: 'normas', component: BibliotecaView },
     { path: '/normas/:id', name: 'norma', component: NormaView },
+    // O roteiro do orientador: o aluno não vê.
+    { path: '/como-funciona', name: 'como-funciona', component: ComoFuncionaView, meta: { naoAluno: true } },
     // O aluno não vê os membros da equipe (etapa 4c).
     { path: '/equipe', name: 'equipe', component: EquipeView, meta: { naoAluno: true } },
     // semEquipe: abre mesmo para quem não está em nenhuma equipe (o administrador, por exemplo).

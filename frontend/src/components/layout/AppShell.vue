@@ -120,6 +120,16 @@ async function sairDoSistema() {
       >
         <i class="pi pi-book"></i><span class="shell__rotulo">Biblioteca de normas</span>
       </router-link>
+      <router-link
+        v-if="!eAluno"
+        to="/como-funciona"
+        class="shell__item"
+        :class="{ 'shell__item--ativo': route.name === 'como-funciona' }"
+        title="Como funciona"
+        @click="fecharGaveta"
+      >
+        <i class="pi pi-compass"></i><span class="shell__rotulo">Como funciona</span>
+      </router-link>
 
       <!-- O aluno não vê os membros da equipe (etapa 4c); o grupo só fica para o administrador, se for o caso. -->
       <div v-if="!eAluno || usuario?.admin" class="shell__grupo"><span class="shell__rotulo">Equipe</span></div>

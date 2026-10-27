@@ -33,4 +33,9 @@
   --mark-foreground: #3b2f05;
   --font-doc: 'Source Serif 4', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  /* O que a IA faz, na página Como funciona: violeta, separado do verde do app. */
+  --ia: oklch(0.5 0.17 285);
+  --ia-bg: oklch(0.955 0.03 285);
+  --ia-foreground: oklch(0.4 0.15 285);
 }
