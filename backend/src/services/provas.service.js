@@ -43,7 +43,9 @@ function linkDeBusca(consulta, site) {
 }
 
 // As buscas sugeridas para um edital, da mais para a menos específica: o mesmo concurso em outros anos, o mesmo
-// órgão em outros cargos e a mesma banca cobrando cada norma do edital.
+// órgão em outros cargos, o mesmo cargo em outros órgãos (da banca e de qualquer banca) e, para cada norma do edital,
+// a banca cobrando e qualquer banca cobrando. As de qualquer banca (decisão do orientador, 2026-10-29): banca pequena
+// (o IBAM, em prefeituras) tem poucas provas publicadas; o estilo muda, mas o artigo cobrado é o mesmo.
 function buscasDoEdital(edital, nomesDasNormas) {
   const banca = nomeCurtoDaBanca(edital.banca);
   const consultas = [];
@@ -56,8 +58,12 @@ function buscasDoEdital(edital, nomesDasNormas) {
   if (banca && edital.cargo) {
     consultas.push({ descricao: "Mesmo cargo, outros órgãos", consulta: `${banca} prova "${edital.cargo}" gabarito` });
   }
+  if (edital.cargo) {
+    consultas.push({ descricao: "Mesmo cargo, qualquer banca", consulta: `prova "${edital.cargo}" gabarito` });
+  }
   for (const norma of nomesDasNormas.slice(0, MAXIMO_DE_NORMAS_NAS_BUSCAS)) {
-    consultas.push({ descricao: `${banca || "Mesma banca"} cobrando: ${norma}`, consulta: `${banca} prova "${norma}" gabarito` });
+    if (banca) consultas.push({ descricao: `${banca} cobrando: ${norma}`, consulta: `${banca} prova "${norma}" gabarito` });
+    consultas.push({ descricao: `Qualquer banca cobrando: ${norma}`, consulta: `prova "${norma}" gabarito` });
   }
   return consultas.map(({ descricao, consulta }) => ({
     descricao,

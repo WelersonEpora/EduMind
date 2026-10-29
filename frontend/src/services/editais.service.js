@@ -55,17 +55,6 @@ export async function revisarNorma(id, normaId, alteracoes) {
   return resposta.data.data
 }
 
-export async function aprovarVerificados(id, disciplinaId) {
-  const resposta = await http.post(`/api/v1/editais/${id}/itens/${disciplinaId}/aprovar-verificados`)
-  return resposta.data.data
-}
-
-// O edital inteiro: árvore e dados do concurso, com o mesmo critério do lote da disciplina.
-export async function aprovarTudoVerificado(id) {
-  const resposta = await http.post(`/api/v1/editais/${id}/aprovar-verificados`)
-  return resposta.data.data
-}
-
 // Fontes (etapa 2a-1): normas citadas nos itens aprovados e a biblioteca de normas.
 export async function buscarFontes(id) {
   const resposta = await http.get(`/api/v1/editais/${id}/fontes`)
@@ -79,14 +68,6 @@ export async function confirmarFonte(id, identidade) {
 
 export async function desligarFonte(id, citacoes) {
   const resposta = await http.post(`/api/v1/editais/${id}/fontes/desligar`, { citacoes })
-  return resposta.data.data
-}
-
-// A busca na web da IA leva de alguns segundos a mais de um minuto.
-const TIMEOUT_BUSCA_URL_MS = 180000
-
-export async function buscarUrlDaNorma(normaId) {
-  const resposta = await http.post(`/api/v1/normas/${normaId}/buscar-url`, null, { timeout: TIMEOUT_BUSCA_URL_MS })
   return resposta.data.data
 }
 

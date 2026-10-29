@@ -1,20 +1,19 @@
 <script setup>
 import { computed } from 'vue'
-import Button from 'primevue/button'
 import TrechoCitado from '../edital/TrechoCitado.vue'
 import BotoesDeRevisao from './BotoesDeRevisao.vue'
 import TextoEditavel from './TextoEditavel.vue'
 import NormaRevisavel from './NormaRevisavel.vue'
 
-// Um nó da árvore na revisão: aprovar ou rejeitar, corrigir o texto, corrigir as normas; na disciplina, aprovar de
-// uma vez os itens verificados. `visiveis` (ids) aplica o filtro "só pendentes".
+// Um nó da árvore na revisão: aprovar ou rejeitar, corrigir o texto, corrigir as normas. Aprovar um nó aprova também
+// o que está dentro dele (a cascata é no backend). `visiveis` (ids) aplica o filtro "só pendentes".
 const props = defineProps({
   item: { type: Object, required: true },
   filhos: { type: Map, required: true },
   visiveis: { type: Set, required: true },
   desativado: { type: Boolean, default: false }
 })
-const emit = defineEmits(['ver-trecho', 'revisar', 'revisar-norma', 'aprovar-verificados'])
+const emit = defineEmits(['ver-trecho', 'revisar', 'revisar-norma'])
 
 const meusFilhos = computed(() => (props.filhos.get(props.item.id) || []).filter((filho) => props.visiveis.has(filho.id)))
 </script>
@@ -31,24 +30,16 @@ const meusFilhos = computed(() => (props.filhos.get(props.item.id) || []).filter
         @salvar="emit('revisar', item, { texto: $event })"
       />
       <TrechoCitado :item="item" @ver="emit('ver-trecho', $event)" />
-      <Button
-        v-if="item.nivel === 'disciplina'"
-        label="Aprovar verificados"
-        icon="pi pi-check-circle"
-        size="small"
-        text
-        :disabled="desativado"
-        title="Aprova a disciplina e os itens dela em rascunho com o trecho verificado e sem pendência nas normas"
-        @click="emit('aprovar-verificados', item)"
-      />
     </div>
     <ul v-if="item.normas.length" class="normas">
       <NormaRevisavel
         v-for="norma in item.normas"
         :key="norma.id"
         :norma="norma"
+        :item="item"
         :desativado="desativado"
         @salvar="emit('revisar-norma', norma, $event)"
+        @ver-trecho="emit('ver-trecho', $event)"
       />
     </ul>
     <ul v-if="meusFilhos.length" class="filhos">
@@ -62,7 +53,6 @@ const meusFilhos = computed(() => (props.filhos.get(props.item.id) || []).filter
         @ver-trecho="emit('ver-trecho', $event)"
         @revisar="(...args) => emit('revisar', ...args)"
         @revisar-norma="(...args) => emit('revisar-norma', ...args)"
-        @aprovar-verificados="emit('aprovar-verificados', $event)"
       />
     </ul>
   </li>

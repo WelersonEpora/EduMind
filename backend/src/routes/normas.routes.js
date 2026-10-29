@@ -33,11 +33,6 @@ function criarRotasDeNormas(fontesService) {
     res.json({ data: await fontesService.artigosDaVersao(req.params.id, req.params.versaoId) });
   });
 
-  // A busca na web da IA, só para achar a URL oficial. Pode levar dezenas de segundos.
-  router.post("/:id/buscar-url", exigirOrientadorOuProfessor, async (req, res) => {
-    res.json({ data: await fontesService.buscarUrl(req.params.id) });
-  });
-
   // { nome }: corrige o nome da norma (vale para todas as equipes).
   router.put("/:id/nome", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await fontesService.renomear(req.params.id, req.body || {}) });
@@ -45,6 +40,11 @@ function criarRotasDeNormas(fontesService) {
 
   router.patch("/:id", exigirOrientadorOuProfessor, async (req, res) => {
     res.json({ data: await fontesService.definirUrl(req.params.id, req.body || {}) });
+  });
+
+  // Baixa o texto da URL oficial já informada (o coletor; fora da tela desde 2026-10-29, ver fontes.service.js).
+  router.post("/:id/coletar", exigirOrientadorOuProfessor, async (req, res) => {
+    res.json({ data: await fontesService.coletar(req.params.id) });
   });
 
   router.post("/:id/versoes", exigirOrientadorOuProfessor, upload.single("arquivo"), async (req, res) => {

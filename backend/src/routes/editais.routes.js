@@ -77,14 +77,6 @@ function criarRotasDeEditais(editalService, extracaoService, revisaoService, fon
     res.json({ data: await revisaoService.revisarNorma(req.params.id, req.params.normaId, req.body || {}) });
   });
 
-  router.post("/:id/itens/:itemId/aprovar-verificados", async (req, res) => {
-    res.json({ data: await revisaoService.aprovarVerificados(req.params.id, req.params.itemId) });
-  });
-
-  router.post("/:id/aprovar-verificados", async (req, res) => {
-    res.json({ data: await revisaoService.aprovarTudoVerificado(req.params.id) });
-  });
-
   // Fontes (etapa 2a-1): as normas citadas nos itens aprovados e a confirmação da identidade de cada uma.
   router.get("/:id/fontes", async (req, res) => {
     res.json({ data: await fontesService.listar(req.params.id) });

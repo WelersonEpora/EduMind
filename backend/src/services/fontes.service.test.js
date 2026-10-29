@@ -10,7 +10,7 @@ const { abrirBancoDeTeste, criarEquipe } = require("../../test/helpers/banco");
 const { criarEditalService } = require("./edital.service");
 const { criarExtracaoService } = require("./extracao.service");
 const { criarRevisaoService } = require("./revisao.service");
-const { criarFontesService, urlOficial, urlDaResposta } = require("./fontes.service");
+const { criarFontesService, urlOficial, buscaNoGoogle } = require("./fontes.service");
 
 const PAGINAS = [
   {
@@ -72,11 +72,14 @@ async function criarEdital(sequelize, nomeArquivo, { aprovar = true } = {}) {
   return { edital, itens };
 }
 
-async function montar(t, { pesquisarNaWeb } = {}) {
+// Sem rede nos testes: o coletor é falso. O padrão falha, como um site fora do ar.
+const SEM_REDE = { coletar: async () => ({ status: "falhou", mensagem: "Sem rede no teste." }) };
+
+async function montar(t, { coletor = SEM_REDE } = {}) {
   const sequelize = await abrirBancoDeTeste(t);
   const equipeId = await criarEquipe(sequelize);
   const dirNormas = fs.mkdtempSync(path.join(os.tmpdir(), "edumind-normas-"));
-  const service = criarFontesService({ sequelize, dirNormas, pesquisarNaWeb, agora: () => new Date("2026-10-22T21:00:00Z") });
+  const service = criarFontesService({ sequelize, dirNormas, coletor, agora: () => new Date("2026-10-22T21:00:00Z") });
   return { equipeId, sequelize, dirNormas, service };
 }
 
@@ -163,21 +166,48 @@ test("só aceita URL de domínio oficial", () => {
   assert.equal(urlOficial("https://gov.br.exemplo.com/x"), null);
   assert.equal(urlOficial("ftp://www.planalto.gov.br/x"), null);
   assert.equal(urlOficial("não é url"), null);
-
-  assert.equal(urlDaResposta("Achei.\nURL: https://www.planalto.gov.br/ccivil_03/leis/l9099.htm"), "https://www.planalto.gov.br/ccivil_03/leis/l9099.htm");
-  assert.equal(urlDaResposta("URL: <https://www.planalto.gov.br/a.htm>"), "https://www.planalto.gov.br/a.htm");
-  assert.equal(urlDaResposta("URL: NENHUMA"), null);
-  assert.equal(urlDaResposta("URL: https://www.jusbrasil.com.br/x"), null);
 });
 
-test("busca da URL: grava a URL oficial; resposta fora dos domínios oficiais vira erro claro", async (t) => {
-  const respostas = ["URL: https://www.planalto.gov.br/ccivil_03/decreto-lei/del2848compilado.htm", "URL: https://www.jusbrasil.com.br/x"];
-  const pedidos = [];
-  const pesquisarNaWeb = async (pedido) => {
-    pedidos.push(pedido);
-    return { texto: respostas.shift(), chave: "paga" };
-  };
-  const { sequelize, service } = await montar(t, { pesquisarNaWeb });
+test("URL informada pelo orientador, só de domínio oficial; busca no Google montada pela identidade", async (t) => {
+  const { sequelize, service } = await montar(t);
+  const { edital } = await criarEdital(sequelize, "a.pdf");
+  const [cp] = await service.listar(edital.id);
+  const norma = await service.confirmar(edital.id, {
+    citacoes: cp.citacoes.map((c) => c.id),
+    jurisdicao: "BR",
+    tipo: "Decreto-Lei",
+    numero: "2.848",
+    ano: "1940",
+    nome: "Código Penal"
+  });
+  assert.equal(
+    decodeURIComponent(new URL(norma.busca_google).searchParams.get("q")),
+    "Decreto-Lei nº 2.848 1940 (site:gov.br OR site:leg.br OR site:jus.br)"
+  );
+  // Sem número: o nome entra no lugar.
+  assert.equal(
+    new URL(buscaNoGoogle({ tipo: "Constituição", nome: "Constituição Federal", ano: "1988" })).searchParams.get("q"),
+    "Constituição Federal 1988 (site:gov.br OR site:leg.br OR site:jus.br)"
+  );
+
+  const manual = await service.definirUrl(norma.id, { url: "https://www.planalto.gov.br/outra.htm" });
+  assert.deepEqual([manual.url_oficial, manual.url_fonte], ["https://www.planalto.gov.br/outra.htm", "orientador"]);
+  // Salvar a URL não baixa nada.
+  assert.deepEqual([manual.coleta, manual.versoes.length], [undefined, 0]);
+  await assert.rejects(service.definirUrl(norma.id, { url: "https://www.jusbrasil.com.br/x" }), { status: 400 });
+});
+
+test("coleta da URL: a página com artigos vira versão; igual não duplica; sem artigos não fica", async (t) => {
+  const PAGINA = Buffer.from("<html><body><p>Art. 1º Primeiro.</p><p>Art. 2º Segundo.</p></body></html>");
+  const respostas = [
+    { status: "obtido", buffer: PAGINA, extensao: ".html", url: "https://www.planalto.gov.br/lei.htm" },
+    { status: "obtido", buffer: PAGINA, extensao: ".html", url: "https://www.planalto.gov.br/lei.htm" },
+    { status: "obtido", buffer: Buffer.from("<html><body>Lista de atos</body></html>"), extensao: ".html", url: "https://www.planalto.gov.br/lista.htm" },
+    { status: "vedado_robots", mensagem: "O robots.txt do site não permite baixar esta página." }
+  ];
+  const urls = [];
+  const coletor = { coletar: async (url) => (urls.push(url), respostas.shift()) };
+  const { sequelize, dirNormas, service } = await montar(t, { coletor });
   const { edital } = await criarEdital(sequelize, "a.pdf");
   const [cp] = await service.listar(edital.id);
   const norma = await service.confirmar(edital.id, {
@@ -189,16 +219,27 @@ test("busca da URL: grava a URL oficial; resposta fora dos domínios oficiais vi
     nome: "Código Penal"
   });
 
-  const comUrl = await service.buscarUrl(norma.id);
-  assert.deepEqual([comUrl.url_oficial, comUrl.url_fonte], ["https://www.planalto.gov.br/ccivil_03/decreto-lei/del2848compilado.htm", "busca_ia"]);
-  assert.match(pedidos[0].prompt, /Código Penal — Decreto-Lei nº 2\.848, de 1940 — norma federal/);
-  assert.equal(pedidos[0].somentePaga, true);
+  await service.definirUrl(norma.id, { url: "https://www.planalto.gov.br/lei.htm" });
+  assert.deepEqual(urls, []);
+  const comTexto = await service.coletar(norma.id);
+  assert.deepEqual(urls, ["https://www.planalto.gov.br/lei.htm"]);
+  assert.equal(comTexto.coleta.status, "obtido");
+  assert.match(comTexto.coleta.mensagem, /2 artigos/);
+  const [versao] = comTexto.versoes;
+  assert.deepEqual([versao.origem, versao.status, versao.url, versao.artigos_total], ["coleta", "obtido", "https://www.planalto.gov.br/lei.htm", 2]);
 
-  await assert.rejects(service.buscarUrl(norma.id), { status: 422, message: /domínio oficial/ });
+  assert.equal((await service.coletar(norma.id)).coleta.status, "igual");
 
-  const manual = await service.definirUrl(norma.id, { url: "https://www.planalto.gov.br/outra.htm" });
-  assert.deepEqual([manual.url_oficial, manual.url_fonte], ["https://www.planalto.gov.br/outra.htm", "orientador"]);
-  await assert.rejects(service.definirUrl(norma.id, { url: "https://www.jusbrasil.com.br/x" }), { status: 400 });
+  const lista = await service.coletar(norma.id);
+  assert.equal(lista.coleta.status, "sem_artigos");
+  assert.equal(lista.versoes.length, 1);
+  assert.equal(fs.readdirSync(path.join(dirNormas, norma.id)).length, 1);
+
+  const vedado = await service.coletar(norma.id);
+  assert.deepEqual([vedado.coleta.status, vedado.versoes.length], ["vedado_robots", 1]);
+
+  await service.definirUrl(norma.id, { url: null });
+  await assert.rejects(service.coletar(norma.id), { status: 400, message: /Informe a URL/ });
 });
 
 test("upload manual: cada conteúdo novo é uma versão; o mesmo arquivo não duplica", async (t) => {

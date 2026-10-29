@@ -4,7 +4,7 @@ const { Agent, fetch: fetchUndici } = require("undici");
 const env = require("../config/env");
 
 // O Gemini pela API REST, sem SDK, no padrão do FinMind (src/ai/gemini-search.provider.js de lá), sem a busca na
-// web: aqui a IA só lê o texto que recebe e devolve JSON no formato pedido (responseSchema).
+// web: a IA só lê o texto que recebe e devolve JSON no formato pedido (responseSchema).
 //
 // DUAS CHAVES: a gratuita é tentada primeiro; a paga só entra quando a gratuita esgota a cota (429), continua com
 // 5xx depois das tentativas ou fica sem responder até o fim da janela (GEMINI_TIMEOUT_MS). Outros erros (chave
@@ -179,16 +179,4 @@ async function gerarJson({ systemInstruction, prompt, responseSchema, arquivos =
   return chamarComChaves(corpo, deps, somentePaga);
 }
 
-// Com a busca na web (Google Search grounding) e resposta em texto: no EduMind, só para descobrir a URL oficial de uma
-// norma, nunca o texto dela (regra do projeto). Com a busca, nada de JSON junto: no AgroMind e no FinMind, o JSON com
-// a busca desligava o grounding sem erro. Quem chama lê o texto e valida a URL.
-async function pesquisarNaWeb({ systemInstruction, prompt, somentePaga = false }, deps = {}) {
-  const corpo = JSON.stringify({
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    tools: [{ google_search: {} }]
-  });
-  return chamarComChaves(corpo, deps, somentePaga);
-}
-
-module.exports = { gerarJson, pesquisarNaWeb, ErroDoGemini };
+module.exports = { gerarJson, ErroDoGemini };

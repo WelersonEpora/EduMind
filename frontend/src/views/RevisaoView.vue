@@ -1,23 +1,14 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useEditais } from '../composables/useEditais'
-import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import LeitorDePaginas from '../components/edital/LeitorDePaginas.vue'
 import MetadadosRevisaveis from '../components/revisao/MetadadosRevisaveis.vue'
 import ItemRevisavel from '../components/revisao/ItemRevisavel.vue'
-import {
-  aprovarTudoVerificado,
-  aprovarVerificados,
-  buscarConteudo,
-  buscarEdital,
-  revisarItem,
-  revisarMetadado,
-  revisarNorma
-} from '../services/editais.service'
+import { buscarConteudo, buscarEdital, revisarItem, revisarMetadado, revisarNorma } from '../services/editais.service'
 
 // Revisão do orientador (etapa 1c): cada item extraído pela IA é aprovado, rejeitado ou corrigido, conferindo o
 // trecho citado no texto da página ao lado.
@@ -29,7 +20,9 @@ const { recarregar: recarregarEditais } = useEditais()
 const edital = ref(null)
 const conteudo = ref([])
 const erro = ref(null)
-const trechoAberto = ref(null)
+// shallowRef: guarda o objeto como veio do selo, para a comparação abaixo bater também com o trecho da norma (um
+// objeto simples, que um ref embrulharia num proxy).
+const trechoAberto = shallowRef(null)
 // Clicar no selo do trecho que já está aberto fecha o painel; em outro selo, troca o trecho.
 function alternarTrecho(item) {
   trechoAberto.value = trechoAberto.value === item ? null : item
@@ -113,9 +106,12 @@ function substituirItem(atualizado) {
   if (i >= 0) conteudo.value[i] = { ...conteudo.value[i], ...atualizado }
 }
 
+// Aprovar ou desaprovar um nó com filhos muda também os filhos (cascata no backend): aí a árvore vem de novo.
 async function aoRevisarItem(item, alteracoes) {
   const atualizado = await executar(() => revisarItem(edital.value.id, item.id, alteracoes), 'Não foi possível salvar')
-  if (atualizado) substituirItem(atualizado)
+  if (!atualizado) return
+  if (alteracoes.status && filhos.value.has(item.id)) conteudo.value = await buscarConteudo(edital.value.id)
+  else substituirItem(atualizado)
 }
 
 async function aoRevisarNorma(norma, alteracoes) {
@@ -127,36 +123,6 @@ async function aoRevisarMetadado(caminho, alteracoes) {
   const metadados = await executar(() => revisarMetadado(edital.value.id, caminho, alteracoes), 'Não foi possível salvar')
   if (metadados) edital.value = { ...edital.value, metadados }
 }
-
-function avisarAprovados(titulo, resultado) {
-  const pendentes = resultado.pendentes
-    ? `${resultado.pendentes} ${resultado.pendentes === 1 ? 'ficou' : 'ficaram'} para conferir um a um.`
-    : undefined
-  toast.add({
-    severity: 'success',
-    summary: `${titulo}: ${resultado.aprovados} ${resultado.aprovados === 1 ? 'item aprovado' : 'itens aprovados'}`,
-    detail: pendentes,
-    life: 5000
-  })
-}
-
-async function aoAprovarVerificados(disciplina) {
-  const resultado = await executar(() => aprovarVerificados(edital.value.id, disciplina.id), 'Não foi possível aprovar')
-  if (!resultado) return
-  conteudo.value = await buscarConteudo(edital.value.id)
-  avisarAprovados(disciplina.texto, resultado)
-}
-
-// O edital inteiro de uma vez: o que não está verificado ou tem pendência nas normas continua em rascunho.
-async function aoAprovarTudoVerificado() {
-  const resultado = await executar(() => aprovarTudoVerificado(edital.value.id), 'Não foi possível aprovar')
-  if (!resultado) return
-  const id = edital.value.id
-  ;[edital.value, conteudo.value] = await Promise.all([buscarEdital(id), buscarConteudo(id)])
-  avisarAprovados('Edital', resultado)
-  // Com o que sobrou à vista, fica mais fácil conferir um a um.
-  if (resultado.pendentes) soPendentes.value = true
-}
 </script>
 
 <template>
@@ -165,8 +131,8 @@ async function aoAprovarTudoVerificado() {
   <template v-if="edital">
     <div class="pagina-cabecalho">
       <p>
-        Aprove, rejeite ou corrija cada item extraído pela IA. Clique no selo da página para conferir o trecho citado no
-        texto do edital.
+        Aprove, rejeite ou corrija cada item extraído pela IA. Aprovar um item aprova também o que está dentro dele, e
+        clicar de novo desfaz. Clique no selo da página para conferir o trecho citado no texto do edital.
       </p>
     </div>
 
@@ -195,19 +161,6 @@ async function aoAprovarTudoVerificado() {
               <span><i class="ponto" /> {{ progresso.pendentes }} pendentes</span>
               <span class="mono">de {{ progresso.total }}</span>
             </p>
-            <div v-if="progresso.pendentes" class="lote">
-              <Button
-                label="Aprovar todos os verificados"
-                icon="pi pi-check-circle"
-                size="small"
-                :disabled="ocupado"
-                @click="aoAprovarTudoVerificado"
-              />
-              <span>
-                Aprova de uma vez os itens pendentes com o trecho conferido na página e sem pendência nas normas. O resto
-                fica para conferir um a um.
-              </span>
-            </div>
           </div>
         </section>
 
@@ -239,7 +192,6 @@ async function aoAprovarTudoVerificado() {
                 @ver-trecho="alternarTrecho"
                 @revisar="aoRevisarItem"
                 @revisar-norma="aoRevisarNorma"
-                @aprovar-verificados="aoAprovarVerificados"
               />
             </ul>
           </div>
@@ -305,17 +257,6 @@ async function aoAprovarTudoVerificado() {
   gap: 1rem;
   font-size: 0.85rem;
   color: var(--muted-foreground);
-}
-.lote {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.85rem;
-  color: var(--muted-foreground);
-}
-.lote span {
-  flex: 1 1 16rem;
 }
 .ponto {
   display: inline-block;

@@ -4,15 +4,15 @@ const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const { dataValida } = require("../shared/datas");
 const { expandirArtigos } = require("../parsers/artigos.parser");
-const { artigosNoEdital } = require("./arvore-do-edital");
+const { artigosNoEdital, comCitacoes } = require("./arvore-do-edital");
 
 // Revisão do orientador (etapa 1c): aprovar, rejeitar ou voltar a rascunho cada item extraído pela IA, e corrigir o
 // texto. Vale para os itens da árvore (edital_item), para as normas citadas (item_norma) e para os metadados (o JSON
 // em edital.metadados, onde cada item revisável ganha status, status_em e editado).
 //
-// Decisões do orientador (2026-10-22): edita-se texto e citação de artigos, sem criar, apagar ou mover itens; a
-// aprovação em lote é por disciplina e só pega os itens verificados e sem pendência na citação de normas. Desde
-// 2026-10-27 há também o lote do edital inteiro, com o mesmo critério.
+// Decisões do orientador (2026-10-22): edita-se texto e citação de artigos, sem criar, apagar ou mover itens.
+// Desde 2026-10-29, aprovar um nó da árvore aprova em cascata o que está dentro dele (no lugar dos botões de aprovar
+// os verificados da disciplina e do edital inteiro); ver revisarItem.
 
 const STATUS = ["rascunho", "aprovado", "rejeitado"];
 
@@ -91,15 +91,6 @@ function aplicar(item, alteracoes, editaveis, agora) {
   }
 }
 
-// Pode entrar na aprovação em lote: trecho verificado e sem pendência na citação das normas (trecho dos artigos não
-// achado no edital ou partes que não são artigos).
-function semPendencia(item) {
-  return (
-    item.verificado &&
-    item.normas.every((n) => (!n.artigos_texto || n.artigos_texto_verificado) && !(n.artigos?.avisos?.length > 0))
-  );
-}
-
 function criarRevisaoService({ sequelize, agora = () => new Date() }) {
   const { Edital, EditalPagina, EditalItem, ItemNorma } = sequelize.models;
 
@@ -118,11 +109,19 @@ function criarRevisaoService({ sequelize, agora = () => new Date() }) {
 
   async function itemComNormas(itemId) {
     const item = await EditalItem.findByPk(itemId, {
-      attributes: { exclude: ["edital_id", "created_at", "updated_at"] },
+      attributes: { exclude: ["created_at", "updated_at"] },
       include: [{ model: ItemNorma, as: "normas", attributes: { exclude: ["item_id", "created_at", "updated_at"] } }],
       order: [[{ model: ItemNorma, as: "normas" }, "ordem", "ASC"]]
     });
-    return item.get({ plain: true });
+    const simples = item.get({ plain: true });
+    const pagina = simples.verificado ? simples.pagina : (simples.pagina_encontrada ?? simples.pagina);
+    const paginas = await EditalPagina.findAll({
+      where: { edital_id: simples.edital_id, numero: [pagina, pagina + 1] },
+      attributes: ["numero", "texto"],
+      raw: true
+    });
+    delete simples.edital_id;
+    return comCitacoes([simples], paginas)[0];
   }
 
   // caminho: "campos.banca", "blocos.0", "blocos.0.disciplinas.2", "regras_de_corte.1" ou "discursiva".
@@ -145,12 +144,47 @@ function criarRevisaoService({ sequelize, agora = () => new Date() }) {
     });
   }
 
+  // A cascata (decisão do orientador, 2026-10-29): aprovar um nó aprova também os itens em rascunho dentro dele,
+  // verificados ou não; os rejeitados continuam rejeitados. Desaprovar (de aprovado para rascunho) volta a rascunho
+  // todos os aprovados dentro dele, mesmo os aprovados um a um antes. Rejeitar não tem cascata.
   async function revisarItem(editalId, itemId, alteracoes) {
     await editalExtraido(editalId);
     const item = await itemDoEdital(editalId, itemId);
+    const statusAnterior = item.status;
     aplicar(item, alteracoes, ["texto"], agora);
-    await item.save();
+
+    let cascata = null;
+    if (item.status === "aprovado" && statusAnterior !== "aprovado") {
+      cascata = { de: "rascunho", para: { status: "aprovado", status_em: item.status_em } };
+    } else if (item.status === "rascunho" && statusAnterior === "aprovado") {
+      cascata = { de: "aprovado", para: { status: "rascunho", status_em: null } };
+    }
+    await sequelize.transaction(async (transaction) => {
+      await item.save({ transaction });
+      if (!cascata) return;
+      const descendentes = await idsDosDescendentes(editalId, item.id, transaction);
+      if (descendentes.length === 0) return;
+      await EditalItem.update(cascata.para, { where: { id: descendentes, status: cascata.de }, transaction });
+    });
     return itemComNormas(item.id);
+  }
+
+  async function idsDosDescendentes(editalId, itemId, transaction) {
+    const itens = await EditalItem.findAll({ where: { edital_id: editalId }, attributes: ["id", "parent_id"], raw: true, transaction });
+    const filhos = new Map();
+    for (const i of itens) {
+      if (!filhos.has(i.parent_id)) filhos.set(i.parent_id, []);
+      filhos.get(i.parent_id).push(i.id);
+    }
+    const ids = [];
+    const juntar = (id) => {
+      for (const filho of filhos.get(id) || []) {
+        ids.push(filho);
+        juntar(filho);
+      }
+    };
+    juntar(itemId);
+    return ids;
   }
 
   // Corrige a identificação da norma e o trecho dos artigos. Um trecho novo é expandido de novo pelo parser e
@@ -192,72 +226,7 @@ function criarRevisaoService({ sequelize, agora = () => new Date() }) {
     return itemComNormas(item.id);
   }
 
-  // Aprova de uma vez a disciplina e os itens dela que estão em rascunho, com o trecho verificado e sem pendência na
-  // citação das normas (trecho dos artigos não achado no edital ou partes que não são artigos). O resto fica para
-  // conferir um a um.
-  async function aprovarVerificados(editalId, disciplinaId) {
-    await editalExtraido(editalId);
-    const disciplina = await itemDoEdital(editalId, disciplinaId);
-    if (disciplina.nivel !== "disciplina") throw new AppError(400, "A aprovação em lote é feita por disciplina.");
-
-    const itens = await EditalItem.findAll({
-      where: { edital_id: editalId },
-      include: [{ model: ItemNorma, as: "normas" }]
-    });
-    const filhos = new Map();
-    for (const item of itens) {
-      if (!filhos.has(item.parent_id)) filhos.set(item.parent_id, []);
-      filhos.get(item.parent_id).push(item);
-    }
-    const daDisciplina = [];
-    const juntar = (item) => {
-      daDisciplina.push(item);
-      (filhos.get(item.id) || []).forEach(juntar);
-    };
-    juntar(itens.find((i) => i.id === disciplina.id));
-
-    return aprovarItensSemPendencia(daDisciplina);
-  }
-
-  async function aprovarItensSemPendencia(itens) {
-    const emRascunho = itens.filter((item) => item.status === "rascunho");
-    const aprovar = emRascunho.filter(semPendencia).map((item) => item.id);
-    if (aprovar.length > 0) {
-      await EditalItem.update({ status: "aprovado", status_em: agora() }, { where: { id: aprovar } });
-    }
-    return { aprovados: aprovar.length, pendentes: emRascunho.length - aprovar.length };
-  }
-
-  // Aprova de uma vez o edital inteiro (decisão do orientador em 2026-10-27: por disciplina ainda eram cliques demais),
-  // com o mesmo critério do lote da disciplina: os itens da árvore e dos metadados em rascunho, com o trecho verificado
-  // e sem pendência. A data de publicação fora do formato AAAA-MM-DD também fica para conferir.
-  async function aprovarTudoVerificado(editalId) {
-    await editalExtraido(editalId);
-    const itens = await EditalItem.findAll({ where: { edital_id: editalId }, include: [{ model: ItemNorma, as: "normas" }] });
-    const arvore = await aprovarItensSemPendencia(itens);
-
-    const metadados = await sequelize.transaction(async (transaction) => {
-      const edital = await editalExtraido(editalId, { transaction, lock: transaction.LOCK.UPDATE });
-      const copia = structuredClone(edital.metadados);
-      const emRascunho = itensDosMetadados(copia).filter((i) => !i.item.status || i.item.status === "rascunho");
-      const aprovar = emRascunho.filter(
-        (i) => i.item.verificado && (i.caminho !== "campos.data_publicacao" || dataValida(i.item.valor))
-      );
-      for (const { item } of aprovar) {
-        item.status = "aprovado";
-        item.status_em = agora().toISOString();
-      }
-      if (aprovar.length > 0) await edital.update({ metadados: copia }, { transaction });
-      return { aprovados: aprovar.length, pendentes: emRascunho.length - aprovar.length };
-    });
-
-    return {
-      aprovados: arvore.aprovados + metadados.aprovados,
-      pendentes: arvore.pendentes + metadados.pendentes
-    };
-  }
-
-  return { revisarMetadado, revisarItem, revisarNorma, aprovarVerificados, aprovarTudoVerificado };
+  return { revisarMetadado, revisarItem, revisarNorma };
 }
 
 // Quantos itens já passaram pela revisão (aprovados, rejeitados ou editados), na árvore e nos metadados. A extração

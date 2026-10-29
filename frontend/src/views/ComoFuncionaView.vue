@@ -141,19 +141,16 @@ import PassoDoGuia from '../components/guia/PassoDoGuia.vue'
           titulo="Obtenha o texto oficial das normas"
           :onde="['Edital', 'Fontes']"
           :quem="['orientador', 'professor']"
-          :ia="{
-            faz: 'Em Buscar com IA, pesquisa na web só a URL oficial, e só de domínio oficial. Nunca escreve nem resume o texto da lei.',
-            confere: 'A identidade da norma, que o sistema propõe por código, e a URL. O texto é você quem envia.'
-          }"
+          sem-ia="O sistema propõe a identidade da norma por código e monta a busca no Google nos domínios oficiais. O texto é você quem acha e envia."
           recorte-titulo="Fontes · 9 normas"
         >
-          <p>Aparecem as normas citadas nos itens aprovados. Para cada uma, confirme qual é a norma, encontre a URL oficial (com a IA ou informando você mesmo) e envie o texto: a página salva pelo navegador, o PDF ou o texto.</p>
+          <p>Aparecem as normas citadas nos itens aprovados. Para cada uma, confirme qual é a norma, ache a lei com Pesquisar no Google, salve a página ou o PDF no navegador e envie o arquivo: a página salva pelo navegador, o PDF ou o texto.</p>
           <ul>
             <li>As normas vão para a Biblioteca, compartilhada entre editais. Cada edital usa a versão mais próxima da data em que foi publicado.</li>
             <li>Cada envio com conteúdo diferente vira uma versão nova da norma.</li>
           </ul>
           <template #recorte>
-            <div class="linha"><span class="mono-pequeno">planalto.gov.br/…/del2848.htm</span><span class="tag-ia">URL da IA</span></div>
+            <div class="linha"><span class="mono-pequeno">planalto.gov.br/…/del2848.htm</span><Tag value="URL informada" severity="secondary" /></div>
             <div class="linha"><span>Constituição Federal</span><Tag value="texto enviado" severity="success" /></div>
             <div class="linha"><span>Lei 10.261/1968 (SP)</span><Tag value="sem texto" severity="warn" /></div>
           </template>
@@ -532,15 +529,6 @@ import PassoDoGuia from '../components/guia/PassoDoGuia.vue'
   color: var(--mark-foreground);
   padding: 0 0.15rem;
   border-radius: 3px;
-}
-.tag-ia {
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 0.12rem 0.5rem;
-  border-radius: 6px;
-  background: var(--ia-bg);
-  color: var(--ia-foreground);
-  white-space: nowrap;
 }
 .barra {
   height: 6px;

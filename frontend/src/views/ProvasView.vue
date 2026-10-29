@@ -211,7 +211,8 @@ const resumo = computed(() => {
         <div v-show="ondeProcurarAberto" class="painel__corpo">
           <p class="instrucao">
             Buscas montadas a partir do edital (banca, órgão, cargo e normas cobradas). Cada link abre uma busca no
-            Google, numa aba nova.
+            Google, numa aba nova. As de "qualquer banca" ajudam quando a banca publica poucas provas: o estilo muda, mas
+            o artigo cobrado é o mesmo.
           </p>
           <table class="buscas">
             <tbody>

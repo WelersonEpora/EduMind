@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 const { AppError } = require("../shared/errors");
 const { expandirArtigos } = require("../parsers/artigos.parser");
-const { verificarTrecho } = require("./verificar-trecho");
+const { verificarTrecho, contem } = require("./verificar-trecho");
 
 // Árvore do conteúdo programático (etapa 1b-2): o esquema da resposta da IA e a montagem das linhas de edital_item e
 // item_norma a partir dela, com a conferência de cada trecho e a expansão dos artigos pelo parser.
@@ -50,6 +50,40 @@ function artigosNoEdital(paginas, pagina, artigosTexto) {
   const textos = paginas.filter((p) => p.numero === pagina || p.numero === pagina + 1).map((p) => p.texto);
   if (textos.length === 0) return false;
   return verificarTrecho([{ numero: pagina, texto: textos.join("\n") }], { pagina, source_excerpt: artigosTexto }).verificado;
+}
+
+// Onde a norma é citada no edital, para o selo da norma na revisão: { pagina, termo } ou null. Calculado na leitura,
+// sem gravar. Procura, nesta ordem, o número, o trecho dos artigos, o nome e o tipo, como a IA os copiou, na página
+// do item (a partir do começo do trecho do item, para não pegar a mesma norma citada num item anterior) e na
+// seguinte (o item pode continuar nela).
+function citacaoDaNorma(paginas, item, norma) {
+  const pagina = item.verificado ? item.pagina : (item.pagina_encontrada ?? item.pagina);
+  const texto = (numero) => paginas.find((p) => p.numero === numero)?.texto ?? "";
+  const doItem = aPartirDoTrecho(texto(pagina), item.source_excerpt);
+  const seguinte = texto(pagina + 1);
+  for (const termo of [norma.numero, norma.artigos_texto, norma.nome, norma.tipo].filter(Boolean)) {
+    if (contem(doItem, termo)) return { pagina, termo };
+    if (contem(seguinte, termo)) return { pagina: pagina + 1, termo };
+  }
+  return null;
+}
+
+// O texto da página a partir de onde o trecho começa (espaços e quebras de linha contam como um espaço só); sem o
+// trecho na página, o texto inteiro.
+function aPartirDoTrecho(texto, trecho) {
+  const palavras = (trecho || "").trim().split(/\s+/).filter(Boolean);
+  if (palavras.length === 0) return texto;
+  const achado = new RegExp(palavras.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+")).exec(texto);
+  return achado ? texto.slice(achado.index) : texto;
+}
+
+// Os itens (objetos simples, com as normas) com `citacao` em cada norma. `paginas` precisa ter as páginas dos itens
+// e as seguintes.
+function comCitacoes(itens, paginas) {
+  for (const item of itens) {
+    for (const norma of item.normas || []) norma.citacao = citacaoDaNorma(paginas, item, norma);
+  }
+  return itens;
 }
 
 function montarNorma(norma, ordem, item, paginas, novoId) {
@@ -108,4 +142,4 @@ function montarArvore(textoDaResposta, paginas, { novoId = () => crypto.randomUU
   return { itens, normas };
 }
 
-module.exports = { ESQUEMA_ARVORE, montarArvore, artigosNoEdital };
+module.exports = { ESQUEMA_ARVORE, montarArvore, artigosNoEdital, comCitacoes };

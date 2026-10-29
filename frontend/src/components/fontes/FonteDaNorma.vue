@@ -5,15 +5,16 @@ import InputText from 'primevue/inputtext'
 import { urlDoArquivoDaVersao } from '../../services/editais.service'
 import { formatarDataHora } from '../../utils/formatar'
 
-// O que é da norma da biblioteca, e não de um edital: a URL oficial (buscada pela IA ou informada) e as versões do
-// texto (upload manual). Usado no card de cada norma nas Fontes de um edital e na tela da norma na biblioteca; a tela
-// que usa faz as chamadas e recarrega. somenteLeitura (o aluno, etapa 4c): mostra a URL e as versões, sem as ações.
+// O que é da norma da biblioteca, e não de um edital: as versões do texto (upload manual, a ação principal) e a URL
+// oficial, só como referência de onde o texto foi achado (decisão do orientador, 2026-10-29: Planalto e Senado bloqueiam
+// o coletor, então ele saiu da tela). Usado no card de cada norma nas Fontes de um edital e na tela da norma na
+// biblioteca; a tela que usa faz as chamadas e recarrega. somenteLeitura (o aluno, etapa 4c): mostra a URL e as versões, sem as ações.
 const props = defineProps({
   norma: { type: Object, required: true },
   ocupado: { type: Boolean, default: false },
   somenteLeitura: { type: Boolean, default: false }
 })
-const emit = defineEmits(['buscar-url', 'definir-url', 'enviar-versao', 'processar-versao'])
+const emit = defineEmits(['definir-url', 'enviar-versao', 'processar-versao'])
 
 // "2026" (só o ano) ou "12/03/2026".
 function dataDaVersao(versao) {
@@ -44,30 +45,11 @@ function escolherArquivo(evento) {
 <template>
   <div class="fonte-da-norma">
     <section>
-      <span class="rotulo">URL oficial</span>
-      <div v-if="!editandoUrl" class="url">
-        <template v-if="norma.url_oficial">
-          <a :href="norma.url_oficial" target="_blank" rel="noopener">{{ norma.url_oficial }}</a>
-          <em class="fonte-url">{{ norma.url_fonte === 'busca_ia' ? 'achada pela busca da IA' : 'informada pelo orientador' }}</em>
-        </template>
-        <span v-else class="pendente">sem URL</span>
-        <span v-if="!somenteLeitura" class="url__botoes">
-          <Button label="Buscar com IA" icon="pi pi-search" size="small" text :loading="ocupado" @click="emit('buscar-url', norma)" />
-          <Button label="Informar" icon="pi pi-pencil" size="small" text :disabled="ocupado" @click="abrirUrl" />
-        </span>
-      </div>
-      <form v-else class="url url--edicao" @submit.prevent="salvarUrl">
-        <InputText v-model="urlDigitada" placeholder="https://www.planalto.gov.br/..." size="small" class="url__campo" />
-        <Button type="submit" label="Salvar" size="small" />
-        <Button label="Cancelar" size="small" text severity="secondary" @click="editandoUrl = false" />
-      </form>
-    </section>
-
-    <section>
       <span class="rotulo">Texto da norma</span>
       <p v-if="norma.versoes.length === 0 && somenteLeitura" class="instrucao">Ainda sem texto.</p>
       <p v-else-if="norma.versoes.length === 0" class="instrucao">
-        Abra a URL oficial no navegador, salve a página (Ctrl+S) e envie o arquivo aqui. Também serve PDF ou .txt.
+        Ache a lei (Pesquisar no Google), abra no navegador, salve a página (Ctrl+S) ou o PDF e envie o arquivo aqui.
+        Também serve .txt, e um arquivo de outro site em que você confie.
       </p>
       <ul v-else class="versoes">
         <li v-for="versao in norma.versoes" :key="versao.id" class="versao">
@@ -88,16 +70,44 @@ function escolherArquivo(evento) {
           </ul>
         </li>
       </ul>
-      <input ref="seletor" type="file" accept=".html,.htm,.pdf,.txt" hidden @change="escolherArquivo" />
-      <Button
-        v-if="!somenteLeitura"
-        :label="norma.versoes.length ? 'Enviar versão nova' : 'Enviar texto'"
-        icon="pi pi-upload"
-        size="small"
-        outlined
-        :disabled="ocupado"
-        @click="seletor.click()"
-      />
+      <span v-if="!somenteLeitura" class="acoes">
+        <input ref="seletor" type="file" accept=".html,.htm,.pdf,.txt" hidden @change="escolherArquivo" />
+        <Button
+          :label="norma.versoes.length ? 'Enviar versão nova' : 'Enviar texto'"
+          icon="pi pi-upload"
+          size="small"
+          :disabled="ocupado"
+          @click="seletor.click()"
+        />
+        <Button
+          as="a"
+          :href="norma.busca_google"
+          target="_blank"
+          rel="noopener"
+          label="Pesquisar no Google"
+          icon="pi pi-search"
+          size="small"
+          text
+          title="Abre, numa aba nova, uma busca pela norma nos domínios oficiais (gov.br, leg.br, jus.br). Dá para mudar a busca lá."
+        />
+      </span>
+    </section>
+
+    <section>
+      <span class="rotulo">Onde achei (opcional)</span>
+      <div v-if="!editandoUrl" class="url">
+        <template v-if="norma.url_oficial">
+          <a :href="norma.url_oficial" target="_blank" rel="noopener">{{ norma.url_oficial }}</a>
+          <em class="fonte-url">{{ norma.url_fonte === 'busca_ia' ? 'achada pela busca da IA' : 'informada pelo orientador' }}</em>
+        </template>
+        <span v-else class="pendente">sem URL</span>
+        <Button v-if="!somenteLeitura" label="Informar" icon="pi pi-pencil" size="small" text :disabled="ocupado" @click="abrirUrl" />
+      </div>
+      <form v-else class="url url--edicao" @submit.prevent="salvarUrl">
+        <InputText v-model="urlDigitada" placeholder="https://www.planalto.gov.br/..." size="small" class="url__campo" />
+        <Button type="submit" label="Salvar" size="small" />
+        <Button label="Cancelar" size="small" text severity="secondary" @click="editandoUrl = false" />
+      </form>
     </section>
   </div>
 </template>
@@ -139,9 +149,10 @@ function escolherArquivo(evento) {
   flex: 1;
   min-width: 16rem;
 }
-.url__botoes {
+.acoes {
   display: inline-flex;
-  gap: 0.1rem;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 .fonte-url {
   font-size: 0.75rem;

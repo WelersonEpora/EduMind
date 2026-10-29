@@ -43,8 +43,15 @@ test("buscas sugeridas: links do Google restritos a cada fonte, montados a parti
       ["Mesmo concurso, outros anos", 'VUNESP prova "Escrevente Técnico Judiciário" TJSP gabarito'],
       ["Mesmo órgão, outros cargos", "VUNESP prova TJSP gabarito"],
       ["Mesmo cargo, outros órgãos", 'VUNESP prova "Escrevente Técnico Judiciário" gabarito'],
-      ["VUNESP cobrando: Código de Processo Civil", 'VUNESP prova "Código de Processo Civil" gabarito']
+      ["Mesmo cargo, qualquer banca", 'prova "Escrevente Técnico Judiciário" gabarito'],
+      ["VUNESP cobrando: Código de Processo Civil", 'VUNESP prova "Código de Processo Civil" gabarito'],
+      ["Qualquer banca cobrando: Código de Processo Civil", 'prova "Código de Processo Civil" gabarito']
     ]
+  );
+  // Sem banca no edital: só as de qualquer banca.
+  assert.deepEqual(
+    buscasDoEdital({ banca: null, orgao: "Prefeitura de Matão", cargo: "Professor" }, ["Lei nº 10.436/2002"]).map((b) => b.descricao),
+    ["Mesmo cargo, qualquer banca", "Qualquer banca cobrando: Lei nº 10.436/2002"]
   );
   assert.deepEqual(
     buscas[1].links.map((l) => [l.fonte, decodeURIComponent(l.url.split("q=")[1])]),
@@ -121,7 +128,8 @@ test("editar, escolher para o edital, desfazer e excluir", async (t) => {
   assert.deepEqual(area.escolhidas.map((p) => p.id), [escolhida.id]);
   // A da mesma banca do edital vem primeiro.
   assert.deepEqual(area.outras.map((p) => p.id), [outra.id, terceira.id]);
-  assert.equal(area.buscas.length, 3);
+  // As três da banca e a do mesmo cargo em qualquer banca (o edital do teste não cita normas aprovadas).
+  assert.equal(area.buscas.length, 4);
 
   area = await service.escolher(edital.id, outra.id);
   assert.deepEqual(area.escolhidas.map((p) => p.id), [outra.id, escolhida.id]);

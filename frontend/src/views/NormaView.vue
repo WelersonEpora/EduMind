@@ -10,7 +10,6 @@ import Tag from 'primevue/tag'
 import {
   buscarArtigosDaVersao,
   buscarNorma,
-  buscarUrlDaNorma,
   definirUrlDaNorma,
   enviarVersaoDaNorma,
   processarVersaoDaNorma,
@@ -98,7 +97,6 @@ async function executar(acao, falha, sucesso) {
     ocupado.value = false
   }
 }
-const aoBuscarUrl = (n) => executar(() => buscarUrlDaNorma(n.id), 'A busca não achou a URL oficial', 'URL oficial encontrada')
 const aoDefinirUrl = (n, url) => executar(() => definirUrlDaNorma(n.id, url), 'Não foi possível salvar a URL')
 const aoProcessarVersao = (n, v) =>
   executar(() => processarVersaoDaNorma(n.id, v.id), 'Não foi possível dividir o texto', 'Texto dividido em artigos')
@@ -252,7 +250,6 @@ const revogados = computed(() => artigos.value.filter((a) => a.revogado).length)
         :ocupado="ocupado"
         :somente-leitura="!podeEditar"
         class="painel__corpo"
-        @buscar-url="aoBuscarUrl"
         @definir-url="aoDefinirUrl"
         @enviar-versao="aoEnviarVersao"
         @processar-versao="aoProcessarVersao"

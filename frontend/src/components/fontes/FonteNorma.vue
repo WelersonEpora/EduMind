@@ -11,7 +11,7 @@ const props = defineProps({
   fonte: { type: Object, required: true },
   ocupado: { type: Boolean, default: false }
 })
-const emit = defineEmits(['confirmar', 'desligar', 'buscar-url', 'definir-url', 'enviar-versao', 'processar-versao'])
+const emit = defineEmits(['confirmar', 'desligar', 'definir-url', 'enviar-versao', 'processar-versao'])
 
 const dataDoEdital = computed(() => props.fonte.vigencia?.dataDoEdital?.split('-').reverse().join('/'))
 
@@ -114,7 +114,6 @@ function confirmar() {
         <FonteDaNorma
           :norma="norma"
           :ocupado="ocupado"
-          @buscar-url="emit('buscar-url', $event)"
           @definir-url="(n, url) => emit('definir-url', n, url)"
           @enviar-versao="(n, arquivo) => emit('enviar-versao', n, arquivo)"
           @processar-versao="(n, versao) => emit('processar-versao', n, versao)"

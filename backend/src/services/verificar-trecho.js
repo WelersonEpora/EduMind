@@ -39,4 +39,4 @@ function verificarTrecho(paginas, { pagina, source_excerpt: trecho }) {
   return { verificado: false, pagina_encontrada: outra ? outra.numero : null };
 }
 
-module.exports = { verificarTrecho };
+module.exports = { verificarTrecho, contem };

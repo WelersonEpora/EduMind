@@ -7,6 +7,7 @@ const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const pdfTexto = require("./pdf-texto");
 const { calcularAndamento } = require("./andamento");
+const { comCitacoes } = require("./arvore-do-edital");
 
 // Recebe o PDF do edital, guarda o arquivo original e o texto de cada página.
 // A extração de metadados e da árvore com IA (etapa 1b) parte do que é gravado aqui.
@@ -108,7 +109,7 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
   }
 
   // Árvore do conteúdo programático em lista, na ordem de leitura (cada item seguido dos seus filhos), com as normas
-  // de cada item. A tela monta a árvore por parent_id.
+  // de cada item e onde cada uma é citada no edital (citacao). A tela monta a árvore por parent_id.
   async function conteudo(id) {
     await buscar(id);
     const itens = await EditalItem.findAll({
@@ -130,7 +131,8 @@ function criarEditalService({ sequelize, dirUploads, lerPaginas = pdfTexto.lerPa
       }
     };
     percorrer(null);
-    return emOrdem;
+    const paginas = await EditalPagina.findAll({ where: { edital_id: id }, attributes: ["numero", "texto"], raw: true });
+    return comCitacoes(emOrdem, paginas);
   }
 
   async function caminhoDoArquivo(id) {

@@ -45,7 +45,9 @@ citadas. Edital de teste: TJSP Escrevente Técnico Judiciário 2025 (Vunesp).
   com a estrutura guardada em cada artigo; os artigos só entram na cobertura depois que o orientador confere a lista.
 - Artigo revogado é "revogado", não "faltando".
 - Nunca inventar texto de lei. Artigo não encontrado aparece como não encontrado.
-- A busca na web da IA serve só para descobrir a URL oficial de uma norma, nunca para obter o texto.
+- A IA não busca na web. O texto da norma vem por upload: o orientador acha a lei (o sistema monta uma busca no Google
+  restrita a gov.br, leg.br e jus.br), salva a página ou o PDF no navegador e envia, inclusive de outro site em que
+  confie. A URL oficial é só referência. O coletor existe no backend, mas está fora da tela (Planalto e Senado o bloqueiam).
 - Coletor: ler e respeitar o robots.txt, User-Agent identificável, no máximo 1 requisição a cada 2 s
   por host, sem paralelismo, sem retentativa agressiva, sem contornar CAPTCHA, login, bloqueio ou
   página que depende de JavaScript. Falhou, foi vedado ou veio vazio: "upload manual necessário".

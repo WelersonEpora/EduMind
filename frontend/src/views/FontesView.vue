@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useEditais } from '../composables/useEditais'
@@ -9,7 +9,6 @@ import FonteNorma from '../components/fontes/FonteNorma.vue'
 import {
   buscarEdital,
   buscarFontes,
-  buscarUrlDaNorma,
   confirmarFonte,
   definirUrlDaNorma,
   desligarFonte,
@@ -18,7 +17,7 @@ import {
 } from '../services/editais.service'
 
 // Fontes das normas do edital (etapa 2a-1): as normas citadas nos itens aprovados na revisão, a identidade de cada
-// uma (que a coloca na biblioteca), a URL oficial e o texto por upload manual.
+// uma (que a coloca na biblioteca), o texto por upload manual e a URL de onde ele foi achado.
 const route = useRoute()
 const toast = useToast()
 // A lista da equipe traz o andamento (pendentes nas abas e situação): cada alteração aqui o muda.
@@ -59,11 +58,23 @@ const visiveis = computed(() => (soPendentes.value ? fontes.value.filter(pendent
 // citação, para o Vue atualizar o mesmo cartão em vez de trocar por outro.
 const idDoCartao = (fonte) => fonte.citacoes[0].id
 
+// A tela fica onde estava: depois da ação, a lista vem de novo e o cartão pode mudar de altura (ao confirmar, o
+// formulário dá lugar à URL e ao texto). A rolagem é corrigida para o topo do cartão ficar no mesmo ponto da tela.
+const topoDoCartao = (id) => document.getElementById(`fonte-${id}`)?.getBoundingClientRect().top
+async function manterNaTela(id, topoAntes) {
+  await nextTick()
+  const topoDepois = topoDoCartao(id)
+  if (topoAntes !== undefined && topoDepois !== undefined) window.scrollBy(0, topoDepois - topoAntes)
+}
+
 async function executar(fonte, acao, falha, sucesso) {
   ocupada.value = fonte.chave
+  const id = idDoCartao(fonte)
   try {
     await acao()
+    const topoAntes = topoDoCartao(id)
     fontes.value = await buscarFontes(edital.value.id)
+    await manterNaTela(id, topoAntes)
     recarregarEditais()
     if (sucesso) toast.add({ severity: 'success', summary: sucesso, life: 4000 })
   } catch (e) {
@@ -81,8 +92,6 @@ function aoConfirmar(fonte, identidade) {
 }
 const aoDesligar = (fonte) =>
   executar(fonte, () => desligarFonte(edital.value.id, fonte.citacoes.map((c) => c.id)), 'Não foi possível desfazer')
-const aoBuscarUrl = (fonte, norma) =>
-  executar(fonte, () => buscarUrlDaNorma(norma.id), 'A busca não achou a URL oficial', 'URL oficial encontrada')
 const aoDefinirUrl = (fonte, norma, url) =>
   executar(fonte, () => definirUrlDaNorma(norma.id, url), 'Não foi possível salvar a URL')
 const aoProcessarVersao = (fonte, norma, versao) =>
@@ -106,7 +115,7 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
     <div class="pagina-cabecalho">
       <p>
         As normas citadas nos itens aprovados na revisão. Confirme a identidade de cada uma (ela entra na biblioteca,
-        compartilhada entre editais), ache a URL oficial e envie o texto.
+        compartilhada entre editais) e envie o texto dela.
       </p>
     </div>
 
@@ -117,8 +126,8 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
     <template v-else>
       <p class="resumo">
         <b>{{ resumo.total }}</b> {{ resumo.total === 1 ? 'norma' : 'normas' }} · <b>{{ resumo.confirmadas }}</b> com a
-        identidade confirmada · <b>{{ resumo.comTexto }}</b> com texto. O texto enviado é dividido em artigos na hora. O
-        coletor automático (etapa 2a-2) ainda não existe: por enquanto o texto vem por upload.
+        identidade confirmada · <b>{{ resumo.comTexto }}</b> com texto. Ache a lei, salve a página ou o PDF no navegador e envie
+        o arquivo: o texto é dividido em artigos na hora.
       </p>
       <label class="filtro">
         <Checkbox v-model="soPendentes" binary input-id="so-pendentes" />
@@ -128,12 +137,12 @@ const aoEnviarVersao = (fonte, norma, arquivo) =>
       <div class="lista">
         <FonteNorma
           v-for="fonte in visiveis"
+          :id="`fonte-${idDoCartao(fonte)}`"
           :key="idDoCartao(fonte)"
           :fonte="fonte"
           :ocupado="ocupada === fonte.chave"
           @confirmar="aoConfirmar(fonte, $event)"
           @desligar="aoDesligar(fonte)"
-          @buscar-url="aoBuscarUrl(fonte, $event)"
           @definir-url="(norma, url) => aoDefinirUrl(fonte, norma, url)"
           @enviar-versao="(norma, arquivo) => aoEnviarVersao(fonte, norma, arquivo)"
           @processar-versao="(norma, versao) => aoProcessarVersao(fonte, norma, versao)"

@@ -3,26 +3,40 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const gemini = require("../ai/gemini.provider");
-const { carregarPrompt } = require("../ai/carregar-prompt");
 const { AppError } = require("../shared/errors");
 const { eUuid } = require("../shared/uuid");
 const logger = require("../shared/logger");
 const { proporIdentidade, chaveDe } = require("./identidade-da-norma");
 const { criarDivisaoService } = require("./divisao.service");
+const { criarColetor } = require("./coletor.service");
 
 // Fontes das normas de um edital e biblioteca de normas (etapa 2a-1).
 //
 // - As normas entram pela revisão: só as citações de itens APROVADOS (decisão do orientador, 2026-10-22).
 // - A identidade de cada norma é proposta por código (identidade-da-norma.js) e confirmada pelo orientador; ao
 //   confirmar, a norma entra na biblioteca (uma por chave, compartilhada entre editais) e as citações ficam ligadas.
-// - A URL oficial vem da busca na web da IA (só a URL, nunca o texto) ou do orientador, e só de domínio oficial.
-// - O texto vem por upload manual: cada arquivo com conteúdo diferente é uma versão nova. O coletor é a etapa 2a-2.
+// - A URL oficial é informada pelo orientador, e só de domínio oficial. Para achá-la, o sistema monta uma busca no
+//   Google restrita aos domínios oficiais (decisão do orientador, 2026-10-29: a busca na web da IA era lenta e trazia
+//   páginas erradas, e saiu). O orientador pode mudar a busca e enviar o texto achado em outro site em que confie.
+// - O texto vem por upload manual: cada arquivo com conteúdo diferente é uma versão nova. O coletor (etapa 2a-2,
+//   coletor.service.js) ficou fora da tela (decisão do orientador, 2026-10-29): o Planalto corta a conexão e o Senado
+//   responde com uma verificação de segurança. Ele continua aqui, em `coletar` e na rota POST /normas/:id/coletar.
 
 const DOMINIOS_OFICIAIS = [".gov.br", ".leg.br", ".jus.br"];
-const PROMPT_URL = "norma-url-oficial.md";
 // Arquivos aceitos no upload: a página salva pelo navegador, o PDF ou o texto.
 const EXTENSOES = { ".html": "text/html", ".htm": "text/html", ".pdf": "application/pdf", ".txt": "text/plain" };
+
+// "Lei nº 9.099 1995 (site:gov.br OR site:leg.br OR site:jus.br)": a identidade da norma e os domínios oficiais.
+function buscaNoGoogle(norma) {
+  // Sem número, vai o nome; o tipo fica de fora quando o nome já o traz ("Constituição Federal").
+  const semTipo = !norma.numero && norma.nome?.startsWith(norma.tipo);
+  const identidade = norma.numero
+    ? [norma.tipo, `nº ${norma.numero}`, norma.ano]
+    : [semTipo ? null : norma.tipo, norma.nome, norma.ano];
+  const sites = DOMINIOS_OFICIAIS.map((dominio) => `site:${dominio.slice(1)}`).join(" OR ");
+  const q = `${identidade.filter(Boolean).join(" ")} (${sites})`;
+  return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+}
 
 function urlOficial(texto) {
   let url;
@@ -34,16 +48,6 @@ function urlOficial(texto) {
   if (!["http:", "https:"].includes(url.protocol)) return null;
   const host = url.hostname.toLowerCase();
   return DOMINIOS_OFICIAIS.some((dominio) => host.endsWith(dominio)) ? url.toString() : null;
-}
-
-// "URL: https://..." na resposta da busca. NENHUMA, ou uma URL fora dos domínios oficiais, devolve null.
-function urlDaResposta(texto) {
-  const linha = String(texto ?? "")
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => /^URL:/i.test(l));
-  if (!linha) return null;
-  return urlOficial(linha.slice(4).trim().replace(/^<|>$/g, ""));
 }
 
 function esferaDe(jurisdicao) {
@@ -64,9 +68,9 @@ function quandoFoiAlterado(data, dataDoEdital) {
 function criarFontesService({
   sequelize,
   dirNormas,
-  pesquisarNaWeb = gemini.pesquisarNaWeb,
   agora = () => new Date(),
-  divisao = criarDivisaoService({ sequelize, dirNormas, agora })
+  divisao = criarDivisaoService({ sequelize, dirNormas, agora }),
+  coletor = criarColetor({ sequelize, urlPermitida: (url) => urlOficial(url) !== null })
 }) {
   const { Edital, EditalItem, ItemNorma, Norma, NormaVersao, NormaArtigo } = sequelize.models;
 
@@ -113,7 +117,7 @@ function criarFontesService({
       order: [["created_at", "DESC"]],
       raw: true
     });
-    return { ...norma.get({ plain: true }), versoes };
+    return { ...norma.get({ plain: true }), versoes, busca_google: buscaNoGoogle(norma) };
   }
 
   // As normas citadas nos itens aprovados, agrupadas: pela norma da biblioteca quando a citação já foi ligada, ou
@@ -242,29 +246,6 @@ function criarFontesService({
     return { desligadas: doEdital.length };
   }
 
-  async function buscarUrl(normaId) {
-    const norma = await normaExistente(normaId);
-    const descricao = [
-      norma.nome,
-      `${norma.tipo}${norma.numero ? ` nº ${norma.numero}` : ""}${norma.ano ? `, de ${norma.ano}` : ""}`,
-      { BR: "norma federal", TJSP: "ato do Tribunal de Justiça de São Paulo" }[norma.jurisdicao] ||
-        (norma.esfera === "estadual" ? `norma do estado ${norma.jurisdicao}` : norma.jurisdicao)
-    ].join(" — ");
-    const { versao, instrucaoDoSistema, prompt } = carregarPrompt(PROMPT_URL, { descricao });
-    // Só a chave paga, como na extração do edital: a gratuita, sob "alta demanda", segurava a chamada a janela inteira.
-    const resposta = await pesquisarNaWeb({ systemInstruction: instrucaoDoSistema, prompt, somentePaga: true });
-    const url = urlDaResposta(resposta.texto);
-    logger.info({ normaId, prompt: versao, chave: resposta.chave, resposta: resposta.texto.slice(0, 300), url }, "busca da URL oficial");
-    if (!url) {
-      throw new AppError(
-        422,
-        `A busca não achou uma página da norma em domínio oficial (.gov.br, .leg.br, .jus.br). Resposta: ${resposta.texto.trim().slice(0, 200)}`
-      );
-    }
-    await norma.update({ url_oficial: url, url_fonte: "busca_ia" });
-    return resumoDaNorma(norma);
-  }
-
   // Corrige o nome (decisão de 2026-10-27). O nome é texto livre, fora da chave: versões, artigos e citações não mudam.
   // A biblioteca é de todos, então o nome novo vale para todas as equipes.
   async function renomear(normaId, { nome }) {
@@ -287,6 +268,43 @@ function criarFontesService({
     return resumoDaNorma(norma);
   }
 
+  // Baixa de novo o texto da URL já informada (a norma foi alterada, ou a tentativa anterior falhou).
+  async function coletar(normaId) {
+    const norma = await normaExistente(normaId);
+    if (!norma.url_oficial) throw new AppError(400, "Informe a URL oficial antes de baixar o texto.");
+    const coleta = await coletarDaUrl(norma);
+    return { ...(await resumoDaNorma(norma)), coleta };
+  }
+
+  // { status, mensagem }: "obtido" (versão nova), "igual" (o texto da URL é o de uma versão que já existe), "sem_artigos"
+  // (a página não é o texto da norma: nada fica guardado) ou o status do coletor ("falhou", "vazio", "vedado_robots").
+  async function coletarDaUrl(norma) {
+    const resultado = await coletor.coletar(norma.url_oficial);
+    if (resultado.status !== "obtido") return { status: resultado.status, mensagem: resultado.mensagem };
+    const { versaoId, jaExistia } = await guardarVersao(norma, {
+      buffer: resultado.buffer,
+      extensao: resultado.extensao,
+      origem: "coleta",
+      status: "obtido",
+      url: resultado.url
+    });
+    if (jaExistia) return { status: "igual", mensagem: "O texto da URL é igual ao de uma versão que já existe." };
+
+    const versao = await NormaVersao.findByPk(versaoId);
+    if (!versao.artigos_total) {
+      // Sem artigos, a página não é o texto da norma (uma lista, uma página que depende de JavaScript...). Guardada,
+      // ela seria a versão mais recente da norma.
+      await NormaArtigo.destroy({ where: { versao_id: versaoId } });
+      await versao.destroy();
+      fs.rmSync(path.join(dirNormas, versao.arquivo_caminho), { force: true });
+      return {
+        status: "sem_artigos",
+        mensagem: "A página baixada não tem artigos: não parece ser o texto da norma. Confira a URL ou envie o texto."
+      };
+    }
+    return { status: "obtido", mensagem: `Texto baixado da URL: ${versao.artigos_total} artigos.` };
+  }
+
   // Upload manual do texto da norma. O mesmo conteúdo (sha256) enviado de novo devolve a versão que já existe.
   async function enviarVersao(normaId, { buffer, nomeArquivo }) {
     const norma = await normaExistente(normaId);
@@ -299,10 +317,17 @@ function criarFontesService({
       throw new AppError(400, "O arquivo tem extensão .pdf, mas não é um PDF.");
     }
 
+    const { jaExistia } = await guardarVersao(norma, { buffer, extensao, origem: "upload", status: "upload_recebido", url: norma.url_oficial });
+    return { norma: await resumoDaNorma(norma), jaExistia };
+  }
+
+  // Guarda o arquivo como versão nova da norma e divide em artigos. O mesmo conteúdo (sha256) devolve a versão que
+  // já existe. A divisão não desfaz a versão se falhar: o arquivo fica guardado, com o erro como aviso, e pode ser
+  // processado de novo.
+  async function guardarVersao(norma, { buffer, extensao, origem, status, url }) {
     const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
     const existente = await NormaVersao.findOne({ where: { norma_id: norma.id, sha256 } });
-    if (existente) return { norma: await resumoDaNorma(norma), jaExistia: true };
-
+    if (existente) return { versaoId: existente.id, jaExistia: true };
     const id = crypto.randomUUID();
     const relativo = path.join(norma.id, `${id}${extensao}`);
     const caminho = path.join(dirNormas, relativo);
@@ -312,10 +337,10 @@ function criarFontesService({
       await NormaVersao.create({
         id,
         norma_id: norma.id,
-        url: norma.url_oficial,
-        origem: "upload",
-        status: "upload_recebido",
-        // A data de acesso de um upload é a do envio. A data da versão vem das notas de redação, na divisão.
+        url,
+        origem,
+        status,
+        // A data de acesso é a do envio ou da coleta. A data da versão vem das notas de redação, na divisão.
         acessado_em: agora(),
         sha256,
         arquivo_caminho: relativo
@@ -324,15 +349,13 @@ function criarFontesService({
       fs.rmSync(caminho, { force: true });
       throw erro;
     }
-    // A divisão em artigos não desfaz o upload se falhar: o arquivo fica guardado, com o erro como aviso, e pode ser
-    // processado de novo.
     try {
       await divisao.processarVersao(id);
     } catch (erro) {
       logger.error({ err: erro, versaoId: id }, "divisão da versão em artigos falhou");
       await NormaVersao.update({ avisos: [`A divisão em artigos falhou: ${erro.message}`] }, { where: { id } });
     }
-    return { norma: await resumoDaNorma(norma), jaExistia: false };
+    return { versaoId: id, jaExistia: false };
   }
 
   // Divide de novo uma versão já guardada (o parser melhorou, ou o upload é anterior à etapa 2b).
@@ -397,9 +420,9 @@ function criarFontesService({
     confirmar,
     incluir,
     desligar,
-    buscarUrl,
     renomear,
     definirUrl,
+    coletar,
     enviarVersao,
     processarVersao,
     arquivoDaVersao,
@@ -409,4 +432,4 @@ function criarFontesService({
   };
 }
 
-module.exports = { criarFontesService, urlOficial, urlDaResposta, quandoFoiAlterado };
+module.exports = { criarFontesService, urlOficial, buscaNoGoogle, quandoFoiAlterado };

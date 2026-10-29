@@ -52,13 +52,22 @@ function escaparRegex(texto) {
   return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function buscar(texto, trecho, inicio = 0) {
+  const regex = new RegExp(trecho.trim().split(/\s+/).map(escaparRegex).join('\\s+'), 'g')
+  regex.lastIndex = inicio
+  return regex.exec(texto)
+}
+
 // Texto da página em partes, com o trecho aberto marcado quando ele está nesta página. A busca ignora diferença de
 // espaços e quebras de linha; um trecho que só casa ignorando a hifenização (como a conferência do backend faz)
-// aparece no quadro acima do texto, sem marca.
+// aparece no quadro acima do texto, sem marca. Com `ancora` (a citação de uma norma), a busca começa onde a âncora
+// está.
 const partesDaPagina = computed(() => {
   const texto = pagina.value?.texto || ''
   const trecho = props.trecho?.source_excerpt?.trim()
-  const achado = trecho ? new RegExp(trecho.split(/\s+/).map(escaparRegex).join('\\s+')).exec(texto) : null
+  const ancora = props.trecho?.ancora?.trim()
+  const inicio = ancora && numeroPagina.value === props.trecho.pagina ? (buscar(texto, ancora)?.index ?? 0) : 0
+  const achado = trecho ? buscar(texto, trecho, inicio) : null
   if (!achado) return [{ texto, marcado: false }]
   return [
     { texto: texto.slice(0, achado.index), marcado: false },
@@ -107,7 +116,7 @@ const partesDaPagina = computed(() => {
     <div class="painel__corpo">
       <div v-if="trecho" class="trecho-aberto">
         <div>
-          <span class="rotulo">Trecho citado pela IA · p. {{ trecho.pagina ?? '?' }}</span>
+          <span class="rotulo">{{ trecho.rotulo ?? 'Trecho citado pela IA' }} · p. {{ trecho.pagina ?? '?' }}</span>
           <p>“{{ trecho.source_excerpt }}”</p>
         </div>
       </div>

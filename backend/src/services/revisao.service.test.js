@@ -39,22 +39,22 @@ const ARVORE = {
       disciplinas: [
         no("DIREITO PENAL", "DIREITO PENAL", {
           assuntos: [
-            // Verificado e com o trecho dos artigos no edital: entra no lote.
+            // Verificado e com o trecho dos artigos no edital.
             no("Código Penal - artigos 293 a 295.", "1. Código Penal - artigos 293 a 295.", {
               normas: [norma({ nome: "Código Penal", artigos_texto: "artigos 293 a 295" })],
               subassuntos: []
             }),
-            // Citação por título: o parser avisa, fica de fora do lote.
+            // Citação por título: o parser avisa.
             no("Constituição Federal – Título II.", "2. Constituição Federal – Título II.", {
               normas: [norma({ nome: "Constituição Federal", artigos_texto: "Título II" })],
               subassuntos: []
             }),
-            // Trecho dos artigos alterado ("60 a 65"): fica de fora do lote.
+            // Trecho dos artigos alterado ("60 a 65"): não verificado.
             no("Lei n.º 9.099 - artigos 60 a 62.", "3. Lei n.º 9.099 - artigos 60 a 62.", {
               normas: [norma({ tipo: "Lei", numero: "9.099", artigos_texto: "artigos 60 a 65" })],
               subassuntos: []
             }),
-            // Trecho que não está no edital: fica de fora do lote.
+            // Trecho que não está no edital.
             no("Crimes em geral.", "4. Crimes em espécie.", { normas: [], subassuntos: [] })
           ]
         })
@@ -142,49 +142,54 @@ test("corrigir o trecho dos artigos expande de novo e confere de novo no edital"
   await assert.rejects(service.revisarNorma(edital.id, crypto.randomUUID(), { nome: "x" }), { status: 404 });
 });
 
-test("aprovar verificados da disciplina deixa de fora o não verificado e as normas com pendência", async (t) => {
-  const { edital, editalService, service, porTexto } = await montar(t);
-  const disciplina = porTexto("DIREITO PENAL");
-  // Já rejeitado antes: o lote não mexe.
-  await service.revisarItem(edital.id, porTexto("Crimes").id, { status: "rejeitado" });
+test("citação da norma: achada pelo número, pelo trecho dos artigos ou pelo nome; norma fora do edital fica sem", async (t) => {
+  const { edital, service, porTexto } = await montar(t);
+  assert.deepEqual(porTexto("Lei n.º 9.099").normas[0].citacao, { pagina: 2, termo: "9.099" });
+  assert.deepEqual(porTexto("Código Penal").normas[0].citacao, { pagina: 2, termo: "artigos 293 a 295" });
+  assert.deepEqual(porTexto("Constituição").normas[0].citacao, { pagina: 2, termo: "Título II" });
 
-  assert.deepEqual(await service.aprovarVerificados(edital.id, disciplina.id), { aprovados: 2, pendentes: 2 });
-  const depois = await editalService.conteudo(edital.id);
-  const status = Object.fromEntries(depois.map((i) => [i.texto.slice(0, 14), i.status]));
-  assert.deepEqual(status, {
-    Direito: "rascunho",
-    "DIREITO PENAL": "aprovado",
-    "Código Penal -": "aprovado",
-    "Constituição F": "rascunho",
-    "Lei n.º 9.099 ": "rascunho",
-    "Crimes em gera": "rejeitado"
-  });
-  await assert.rejects(service.aprovarVerificados(edital.id, porTexto("Direito").id), { status: 400, message: /por disciplina/ });
+  // A correção devolve o item com a citação calculada de novo.
+  const [lei] = porTexto("Lei n.º 9.099").normas;
+  const corrigido = await service.revisarNorma(edital.id, lei.id, { tipo: "Decreto", numero: "12.773", artigos_texto: "" });
+  assert.equal(corrigido.normas[0].citacao, null);
+  assert.equal(corrigido.edital_id, undefined);
 });
 
-test("aprovar verificados do edital inteiro pega a árvore e os metadados, com o mesmo critério", async (t) => {
+test("aprovar um nó aprova em cascata o que está dentro; desaprovar desfaz; rejeitar não tem cascata", async (t) => {
   const { edital, editalService, service, porTexto } = await montar(t);
+  const status = async () =>
+    Object.fromEntries((await editalService.conteudo(edital.id)).map((i) => [i.texto.slice(0, 14), i.status]));
+  // Já rejeitado antes: a cascata não mexe.
   await service.revisarItem(edital.id, porTexto("Crimes").id, { status: "rejeitado" });
-  await service.revisarMetadado(edital.id, { caminho: "campos.banca", status: "rejeitado" });
 
-  // Árvore: 3 aprovados e 2 pendentes. Metadados: data, bloco e disciplina aprovados.
-  assert.deepEqual(await service.aprovarTudoVerificado(edital.id), { aprovados: 6, pendentes: 2 });
-  const status = Object.fromEntries((await editalService.conteudo(edital.id)).map((i) => [i.texto.slice(0, 14), i.status]));
-  assert.deepEqual(status, {
+  // Entram também o não verificado e os com pendência nas normas.
+  await service.revisarItem(edital.id, porTexto("Direito").id, { status: "aprovado" });
+  assert.deepEqual(await status(), {
     Direito: "aprovado",
     "DIREITO PENAL": "aprovado",
     "Código Penal -": "aprovado",
+    "Constituição F": "aprovado",
+    "Lei n.º 9.099 ": "aprovado",
+    "Crimes em gera": "rejeitado"
+  });
+
+  // Desaprovar a disciplina: ela e os aprovados dentro dela voltam a rascunho; o bloco acima não muda.
+  await service.revisarItem(edital.id, porTexto("DIREITO PENAL").id, { status: "rascunho" });
+  assert.deepEqual(await status(), {
+    Direito: "aprovado",
+    "DIREITO PENAL": "rascunho",
+    "Código Penal -": "rascunho",
     "Constituição F": "rascunho",
     "Lei n.º 9.099 ": "rascunho",
     "Crimes em gera": "rejeitado"
   });
-  const { metadados } = await editalService.buscar(edital.id);
-  assert.deepEqual(
-    [metadados.campos.banca.status, metadados.campos.data_publicacao.status, metadados.blocos[0].status, metadados.blocos[0].disciplinas[0].status],
-    ["rejeitado", "aprovado", "aprovado", "aprovado"]
-  );
-  // De novo: nada mais a aprovar.
-  assert.deepEqual(await service.aprovarTudoVerificado(edital.id), { aprovados: 0, pendentes: 2 });
+
+  // Rejeitar a disciplina e depois tirar a rejeição não mexe nos itens dela.
+  await service.revisarItem(edital.id, porTexto("Código Penal").id, { status: "aprovado" });
+  await service.revisarItem(edital.id, porTexto("DIREITO PENAL").id, { status: "rejeitado" });
+  await service.revisarItem(edital.id, porTexto("DIREITO PENAL").id, { status: "rascunho" });
+  const depois = await status();
+  assert.deepEqual([depois["DIREITO PENAL"], depois["Código Penal -"], depois["Constituição F"]], ["rascunho", "aprovado", "rascunho"]);
 });
 
 test("revisa os metadados: status, edição, data validada e colunas do edital", async (t) => {

@@ -2,15 +2,32 @@
 import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import TrechoCitado from '../edital/TrechoCitado.vue'
 import { nomeDaNorma, pendenciasDaNorma, resumoDosArtigos } from '../../utils/normas'
 
 // Uma norma citada num item, com a correção da identificação e do trecho dos artigos. O trecho novo é expandido de
-// novo pelo parser no backend.
+// novo pelo parser no backend. O selo abre a página do edital com a citação da norma marcada (`citacao`, calculada no
+// backend: a página e o termo achado, ou null).
 const props = defineProps({
   norma: { type: Object, required: true },
+  item: { type: Object, required: true },
   desativado: { type: Boolean, default: false }
 })
-const emit = defineEmits(['salvar'])
+const emit = defineEmits(['salvar', 'ver-trecho'])
+
+// No formato que o selo e o leitor de páginas esperam. `ancora`: na página do item, a busca começa no trecho dele,
+// para não marcar a mesma norma citada num item anterior.
+const trecho = computed(() => {
+  const citacao = props.norma.citacao
+  return {
+    rotulo: 'Citação da norma',
+    verificado: Boolean(citacao),
+    pagina: citacao?.pagina ?? props.item.pagina,
+    pagina_encontrada: null,
+    source_excerpt: citacao?.termo ?? nomeDaNorma(props.norma),
+    ancora: citacao?.pagina === props.item.pagina ? props.item.source_excerpt : null
+  }
+})
 
 const CAMPOS = [
   ['tipo', 'Tipo', 'Lei, Decreto-Lei, Resolução TJSP...'],
@@ -47,6 +64,7 @@ function salvar() {
       <i class="pi pi-book" />
       <span class="norma__nome">{{ nomeDaNorma(norma) }}</span>
       <span class="mono" :title="artigos.length ? `Artigos: ${artigos.join(', ')}` : ''">· {{ resumoDosArtigos(norma) }}</span>
+      <TrechoCitado :item="trecho" @ver="emit('ver-trecho', $event)" />
       <span v-for="pendencia in pendencias" :key="pendencia" class="aviso" :title="`Citação no edital: “${norma.artigos_texto}”`">
         <i class="pi pi-exclamation-triangle" /> {{ pendencia }}
       </span>
